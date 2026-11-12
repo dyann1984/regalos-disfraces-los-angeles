@@ -2,8 +2,8 @@
 
 import React from "react";
 import Link from "next/link";
-import { motion, Variants } from "framer-motion";
-import { Check, ChevronRight } from "lucide-react";
+import { motion, Variants, useReducedMotion } from "framer-motion";
+import { Check, ChevronRight, Sparkles } from "lucide-react";
 import { useStore } from "@/context/StoreContext";
 import { BoutiqueSectionHeading } from "@/components/BrandDetails";
 
@@ -12,23 +12,25 @@ const containerVariants: Variants = {
   visible: {
     opacity: 1,
     transition: {
-      staggerChildren: 0.055,
+      staggerChildren: 0.085,
+      delayChildren: 0.05,
     },
   },
 };
 
 const itemVariants: Variants = {
-  hidden: { opacity: 0, y: 16, scale: 0.96 },
+  hidden: { opacity: 0, y: 26, scale: 0.92 },
   visible: {
     opacity: 1,
     y: 0,
     scale: 1,
-    transition: { duration: 0.35, ease: "easeOut" },
+    transition: { type: "spring", stiffness: 260, damping: 20 },
   },
 };
 
 export default function CategoryGrid() {
   const { categories, selectedCategory, setSelectedCategory } = useStore();
+  const shouldReduceMotion = useReducedMotion();
 
   return (
     <section
@@ -36,17 +38,21 @@ export default function CategoryGrid() {
       aria-labelledby="titulo-categorias"
       className="max-w-[1320px] mx-auto px-4 sm:px-6 pt-8 pb-4"
     >
-      {/* Encabezado con estrellas doradas, corazones discretos y tipografía Poppins */}
+      {/* Encabezado con estrellas doradas animadas y tipografía Poppins */}
       <div className="mb-6">
-        <BoutiqueSectionHeading id="titulo-categorias" title="Nuestras Categorías" />
+        <BoutiqueSectionHeading
+          id="titulo-categorias"
+          title="Nuestras Categorías"
+          badgeText="Explora por departamento"
+        />
       </div>
 
-      {/* Grid de 6 Categorías Prioritarias que abren directamente el catálogo filtrado */}
+      {/* Grid de 6 Categorías Prioritarias con aparición progresiva y elevación 3D */}
       <motion.div
         variants={containerVariants}
         initial="hidden"
         whileInView="visible"
-        viewport={{ once: true, margin: "-40px" }}
+        viewport={{ once: true, margin: "-35px" }}
         className="relative grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 sm:gap-4"
       >
         {categories
@@ -58,29 +64,43 @@ export default function CategoryGrid() {
               <motion.div
                 key={cat.id}
                 variants={itemVariants}
-                whileHover={{ y: -5, scale: 1.02 }}
-                whileTap={{ scale: 0.97 }}
+                whileHover={
+                  !shouldReduceMotion
+                    ? { y: -9, rotateZ: -0.8, scale: 1.03 }
+                    : undefined
+                }
+                whileTap={{ scale: 0.96 }}
+                transition={{ type: "spring", stiffness: 320, damping: 20 }}
               >
                 <Link
                   href={`/catalogo?categoria=${encodeURIComponent(cat.slug)}`}
                   onClick={() => setSelectedCategory(cat.slug)}
-                  className={`group relative h-full flex flex-col items-center justify-between rounded-2xl p-3 sm:p-3.5 transition-colors duration-200 border text-center ${
+                  className={`card-boutique-3d group relative h-full flex flex-col items-center justify-between rounded-2xl p-3 sm:p-3.5 border text-center overflow-hidden ${
                     isSelected
                       ? "bg-gradient-to-b from-[#F8BBD0] to-[#F48FB1] border-[#D81B60] shadow-boutiqueHover"
-                      : "bg-gradient-to-b from-[#FDE8F1] to-[#FADCE9] hover:from-[#FADCE9] hover:to-[#F7C6DB] border-pink-200/80 shadow-card hover:shadow-boutique"
+                      : "bg-gradient-to-b from-[#FDE8F1] to-[#FADCE9] hover:from-[#FADCE9] hover:to-[#F7C6DB] border-pink-200/90 shadow-card"
                   }`}
                 >
+                  <div className="card-sheen-overlay" />
+
+                  <span
+                    aria-hidden="true"
+                    className="absolute top-2 right-2 opacity-65 group-hover:opacity-100 transition-opacity z-10"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-[#F59E0B] animate-twinkle" />
+                  </span>
+
                   {isSelected && (
-                    <span className="absolute -top-2 -right-2 z-10 w-6 h-6 rounded-full bg-[#D81B60] text-white flex items-center justify-center shadow-md border-2 border-white">
+                    <span className="absolute -top-2 -right-2 z-20 w-6 h-6 rounded-full bg-[#D81B60] text-white flex items-center justify-center shadow-md border-2 border-white">
                       <Check className="w-3.5 h-3.5 stroke-[3]" />
                     </span>
                   )}
 
-                  <div className="w-full aspect-[4/3] rounded-xl overflow-hidden bg-white/85 flex items-center justify-center p-1.5 shadow-inner border border-white/60">
+                  <div className="w-full aspect-[4/3] rounded-xl overflow-hidden bg-white/90 flex items-center justify-center p-1.5 shadow-inner border border-white/70">
                     <img
                       src={cat.image}
                       alt={cat.name}
-                      className="w-full h-full object-contain group-hover:scale-105 group-hover:-translate-y-0.5 transition-transform duration-300 ease-out"
+                      className="img-zoom-smooth w-full h-full object-contain"
                     />
                   </div>
                   <span
@@ -90,7 +110,7 @@ export default function CategoryGrid() {
                   >
                     {cat.shortName}
                   </span>
-                  <span className="mt-1 inline-flex items-center gap-0.5 text-[10px] font-semibold text-[#D81B60]">
+                  <span className="mt-1 inline-flex items-center gap-0.5 text-[10px] font-bold text-[#D81B60] group-hover:translate-x-0.5 transition-transform">
                     <span>Ver artículos</span>
                     <ChevronRight className="w-3 h-3" />
                   </span>

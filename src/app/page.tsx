@@ -207,8 +207,8 @@ export default function HomePage() {
                 transition={{ duration: 0.25 }}
                 className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 sm:gap-4"
               >
-                {featuredSix.map((product) => (
-                  <ProductCard key={product.id} product={product} />
+                {featuredSix.map((product, idx) => (
+                  <ProductCard key={product.id} product={product} index={idx} />
                 ))}
               </motion.div>
             ) : filteredProducts.length === 0 ? (
@@ -242,8 +242,8 @@ export default function HomePage() {
                 transition={{ duration: 0.25 }}
                 className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3.5 sm:gap-4"
               >
-                {filteredProducts.map((product) => (
-                  <ProductCard key={product.id} product={product} />
+                {filteredProducts.map((product, idx) => (
+                  <ProductCard key={product.id} product={product} index={idx} />
                 ))}
               </motion.div>
             )}
@@ -301,8 +301,8 @@ export default function HomePage() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {specialOffers.map((product) => (
-                <ProductCard key={`offer-${product.id}`} product={product} />
+              {specialOffers.map((product, idx) => (
+                <ProductCard key={`offer-${product.id}`} product={product} index={idx} />
               ))}
             </div>
           </div>

@@ -17,9 +17,47 @@ const CONFETTI_PIECES = [
   { id: 10, x: 40, y: -70, rot: -35, color: "#F59E0B", shape: "heart" },
 ];
 
+const GOLDEN_SPARKLE_POINTS = [
+  { id: "s1", top: "12%", left: "6%", size: "w-5 h-5", delayClass: "animate-twinkle", type: "star" },
+  { id: "s2", top: "24%", left: "29%", size: "w-4 h-4", delayClass: "animate-twinkle-delayed", type: "sparkle" },
+  { id: "s3", top: "76%", left: "26%", size: "w-5 h-5", delayClass: "animate-twinkle", type: "star" },
+  { id: "s4", top: "16%", left: "54%", size: "w-4 h-4", delayClass: "animate-twinkle-delayed", type: "sparkle" },
+  { id: "s5", top: "82%", left: "58%", size: "w-4 h-4", delayClass: "animate-twinkle", type: "heart" },
+  { id: "s6", top: "14%", left: "89%", size: "w-5 h-5", delayClass: "animate-twinkle", type: "star" },
+  { id: "s7", top: "68%", left: "93%", size: "w-4 h-4", delayClass: "animate-twinkle-delayed", type: "sparkle" },
+  { id: "s8", top: "45%", left: "48%", size: "w-3.5 h-3.5", delayClass: "animate-twinkle", type: "star" },
+];
+
 /**
- * Confeti discreto que se dispara únicamente una vez al completar una acción importante
- * (ej. confirmar un pedido o aplicar un cupón). Respeta prefers-reduced-motion.
+ * Campo de destellos dorados animados para el Banner y cabeceras boutique.
+ */
+export function GoldenSparklesField() {
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+      {GOLDEN_SPARKLE_POINTS.map((sp) => (
+        <span
+          key={sp.id}
+          style={{ top: sp.top, left: sp.left }}
+          className={`absolute ${sp.delayClass}`}
+        >
+          {sp.type === "star" && (
+            <Star className={`${sp.size} text-[#F59E0B] fill-[#FBBF24]`} />
+          )}
+          {sp.type === "sparkle" && (
+            <Sparkles className={`${sp.size} text-[#F59E0B] fill-[#FDE68A]`} />
+          )}
+          {sp.type === "heart" && (
+            <Heart className={`${sp.size} text-[#D81B60]/60 fill-[#F48FB1]/65`} />
+          )}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Confeti discreto que se dispara al completar una acción importante.
+ * Respeta prefers-reduced-motion.
  */
 export function CelebrationConfetti({ active }: { active: boolean }) {
   const shouldReduceMotion = useReducedMotion();
@@ -64,7 +102,7 @@ export function CelebrationConfetti({ active }: { active: boolean }) {
 
 /**
  * Encabezado de sección con detalles de marca boutique:
- * Estrellas doradas, cinta decorativa sutil y tipografía Poppins sin cursivas.
+ * Destellos dorados animados, cinta decorativa sutil y tipografía Poppins sin cursivas.
  */
 export function BoutiqueSectionHeading({
   id,
@@ -76,21 +114,28 @@ export function BoutiqueSectionHeading({
   badgeText?: string;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center text-center">
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-25px" }}
+      transition={{ duration: 0.45, ease: "easeOut" }}
+      className="flex flex-col items-center justify-center text-center"
+    >
       {badgeText && (
-        <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-pink-50 border border-pink-200/80 text-[#AD1457] text-[11px] font-semibold tracking-wide uppercase mb-2 shadow-sm">
-          <Sparkles className="w-3 h-3 text-[#F59E0B]" />
+        <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-gradient-to-r from-pink-50 via-amber-50/70 to-pink-50 border border-pink-200/90 text-[#AD1457] text-[11px] font-bold tracking-wide uppercase mb-2.5 shadow-sm">
+          <Sparkles className="w-3.5 h-3.5 text-[#F59E0B] animate-twinkle" />
           <span>{badgeText}</span>
+          <Sparkles className="w-3.5 h-3.5 text-[#F59E0B] animate-twinkle-delayed" />
         </span>
       )}
       <div className="flex items-center justify-center gap-3">
         <div className="hidden sm:flex items-center gap-1.5">
-          <div className="h-[1.5px] w-16 md:w-28 bg-gradient-to-r from-transparent via-pink-300 to-[#F59E0B]/60 rounded-full" />
-          <Heart className="w-3 h-3 text-pink-400 fill-pink-300" />
+          <div className="h-[2px] w-16 md:w-28 bg-gradient-to-r from-transparent via-pink-300 to-[#F59E0B]/80 rounded-full" />
+          <Heart className="w-3.5 h-3.5 text-pink-400 fill-pink-300 animate-twinkle-delayed" />
         </div>
 
-        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-50 border border-amber-200/80 shadow-sm">
-          <Star className="w-4 h-4 text-[#F59E0B] fill-[#F59E0B]" />
+        <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-br from-amber-50 to-amber-100/80 border border-amber-300/80 shadow-goldGlow animate-gold-orb">
+          <Star className="w-4 h-4 text-[#F59E0B] fill-[#FBBF24] animate-twinkle" />
         </span>
 
         <h2
@@ -100,15 +145,15 @@ export function BoutiqueSectionHeading({
           {title}
         </h2>
 
-        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-50 border border-amber-200/80 shadow-sm">
-          <Star className="w-4 h-4 text-[#F59E0B] fill-[#F59E0B]" />
+        <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-br from-amber-50 to-amber-100/80 border border-amber-300/80 shadow-goldGlow animate-gold-orb">
+          <Star className="w-4 h-4 text-[#F59E0B] fill-[#FBBF24] animate-twinkle-delayed" />
         </span>
 
         <div className="hidden sm:flex items-center gap-1.5">
-          <Heart className="w-3 h-3 text-pink-400 fill-pink-300" />
-          <div className="h-[1.5px] w-16 md:w-28 bg-gradient-to-l from-transparent via-pink-300 to-[#F59E0B]/60 rounded-full" />
+          <Heart className="w-3.5 h-3.5 text-pink-400 fill-pink-300 animate-twinkle" />
+          <div className="h-[2px] w-16 md:w-28 bg-gradient-to-l from-transparent via-pink-300 to-[#F59E0B]/80 rounded-full" />
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

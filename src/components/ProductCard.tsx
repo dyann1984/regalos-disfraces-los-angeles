@@ -37,7 +37,13 @@ const BADGE_STYLES: Record<
   },
 };
 
-export default function ProductCard({ product }: { product: Product }) {
+export default function ProductCard({
+  product,
+  index = 0,
+}: {
+  product: Product;
+  index?: number;
+}) {
   const { addToCart, toggleFavorite, isFavorite, setActiveProductModal } = useStore();
   const shouldReduceMotion = useReducedMotion();
 
@@ -71,8 +77,8 @@ export default function ProductCard({ product }: { product: Product }) {
     const x = (e.clientX - rect.left) / rect.width - 0.5;
     const y = (e.clientY - rect.top) / rect.height - 0.5;
     setTilt({
-      rotateX: Number((-y * 7).toFixed(2)),
-      rotateY: Number((x * 7).toFixed(2)),
+      rotateX: Number((-y * 8.5).toFixed(2)),
+      rotateY: Number((x * 8.5).toFixed(2)),
     });
   };
 
@@ -100,29 +106,38 @@ export default function ProductCard({ product }: { product: Product }) {
     }, 1150);
   };
 
+  const staggerDelay = shouldReduceMotion ? 0 : (index % 6) * 0.065;
+
   return (
     <motion.article
       layout
-      initial={{ opacity: 0, y: 14 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-30px" }}
-      whileHover={!shouldReduceMotion && canHover3D ? { y: -5 } : undefined}
+      initial={{ opacity: 0, y: 26, scale: 0.94 }}
+      whileInView={{ opacity: 1, y: 0, scale: 1 }}
+      viewport={{ once: true, margin: "-25px" }}
+      whileHover={!shouldReduceMotion && canHover3D ? { y: -9, scale: 1.02 } : undefined}
       onMouseMove={handleMouseMove}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       style={
         canHover3D && !shouldReduceMotion
           ? {
-              transformPerspective: 900,
+              transformPerspective: 950,
               rotateX: tilt.rotateX,
               rotateY: tilt.rotateY,
             }
           : undefined
       }
-      transition={{ type: "spring", stiffness: 280, damping: 22 }}
-      className="group relative bg-white rounded-2xl border border-pink-200/80 shadow-card hover:shadow-boutiqueHover transition-shadow duration-300 flex flex-col justify-between overflow-hidden p-2.5"
+      transition={{
+        type: "spring",
+        stiffness: 260,
+        damping: 22,
+        delay: staggerDelay,
+      }}
+      className="card-boutique-3d group relative bg-white rounded-2xl border border-pink-200/80 shadow-card flex flex-col justify-between overflow-hidden p-2.5"
     >
-      {/* Área de fotografía con zoom controlado y etiquetas superpuestas */}
+      <div className="card-sheen-overlay z-10" />
+
+      {/* Área de fotografía con zoom suave controlado y etiquetas superpuestas */}
       <div>
         <div className="relative w-full aspect-[4/3.4] rounded-xl overflow-hidden bg-[#FDF2F7]">
           <AnimatePresence mode="wait">
@@ -135,14 +150,14 @@ export default function ProductCard({ product }: { product: Product }) {
               exit={{ opacity: 0.85 }}
               transition={{ duration: 0.25 }}
               onClick={() => setActiveProductModal(product)}
-              className="w-full h-full object-cover cursor-pointer group-hover:scale-105 transition-transform duration-500 ease-out"
+              className="img-zoom-smooth w-full h-full object-cover cursor-pointer"
             />
           </AnimatePresence>
 
           {/* Etiqueta superior izquierda */}
           {product.badge && (
             <span
-              className={`absolute top-1 left-1 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold shadow-md ${
+              className={`absolute top-1.5 left-1.5 z-20 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold shadow-md ${
                 BADGE_STYLES[product.badge.variant].bg
               }`}
             >
@@ -151,23 +166,31 @@ export default function ProductCard({ product }: { product: Product }) {
             </span>
           )}
 
-          {/* Botón de Favorito superior derecho */}
+          {/* Botón de Favorito superior derecho con animación fluida */}
           <motion.button
             type="button"
-            whileTap={{ scale: 0.85 }}
+            whileHover={{ scale: 1.14 }}
+            whileTap={{ scale: 0.82 }}
             onClick={() => toggleFavorite(product.id)}
             aria-label={fav ? "Quitar de favoritos" : "Agregar a favoritos"}
-            className={`absolute top-1 right-1 w-8 h-8 rounded-full flex items-center justify-center shadow-md transition ${
+            className={`absolute top-1.5 right-1.5 z-20 w-8 h-8 rounded-full flex items-center justify-center shadow-md transition-colors ${
               fav
-                ? "bg-[#E91E63] text-white"
-                : "bg-white text-[#D81B60] hover:bg-pink-50"
+                ? "bg-gradient-to-br from-[#E91E63] to-[#C2185B] text-white ring-2 ring-white"
+                : "bg-white/95 text-[#D81B60] hover:bg-pink-50"
             }`}
           >
-            <Heart className={`w-4 h-4 ${fav ? "fill-current" : ""}`} />
+            <motion.span
+              key={fav ? "fav-on" : "fav-off"}
+              initial={{ scale: 0.6 }}
+              animate={{ scale: [1, 1.32, 1] }}
+              transition={{ duration: 0.3 }}
+            >
+              <Heart className={`w-4 h-4 ${fav ? "fill-current" : ""}`} />
+            </motion.span>
           </motion.button>
 
           {/* Indicador de producto de referencia + Vista rápida */}
-          <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between pointer-events-none">
+          <div className="absolute bottom-1.5 left-1.5 right-1.5 z-20 flex items-center justify-between pointer-events-none">
             {isReferenceProduct && (
               <span
                 title="Producto de referencia — Consulta disponibilidad"
@@ -179,7 +202,7 @@ export default function ProductCard({ product }: { product: Product }) {
             <button
               type="button"
               onClick={() => setActiveProductModal(product)}
-              className="pointer-events-auto ml-auto opacity-95 sm:opacity-0 group-hover:opacity-100 bg-white/95 text-[#6A1B4D] hover:text-[#D81B60] text-[10px] font-bold px-2.5 py-1 rounded-full shadow flex items-center gap-1 transition"
+              className="pointer-events-auto ml-auto opacity-95 sm:opacity-0 group-hover:opacity-100 bg-white/95 text-[#6A1B4D] hover:text-[#D81B60] text-[10px] font-bold px-2.5 py-1 rounded-full shadow flex items-center gap-1 transition-all duration-200 group-hover:translate-y-0 translate-y-1"
             >
               <Eye className="w-3 h-3" />
               <span>Detalles</span>
@@ -202,7 +225,7 @@ export default function ProductCard({ product }: { product: Product }) {
       </div>
 
       {/* Estado de precio / referencia y Acción Principal */}
-      <div className="mt-2.5 pt-1 px-1">
+      <div className="mt-2.5 pt-1 px-1 relative z-20">
         <div className="flex items-baseline justify-center gap-1.5 mb-2 text-center">
           {!isReferenceProduct && effectivePrice !== null && effectivePrice !== undefined ? (
             <>

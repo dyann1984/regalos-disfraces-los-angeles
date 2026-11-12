@@ -43,24 +43,25 @@ export default function StoreGallerySection() {
           </p>
         </div>
 
-        {/* Cuadrícula de 6 fotografías de la tienda */}
+        {/* Cuadrícula de 6 fotografías de la tienda con elevación 3D y zoom suave */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
           {storeGallery.map((item, idx) => (
             <motion.div
               key={item.id}
-              initial={{ opacity: 0, y: 16 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.35, delay: idx * 0.05 }}
-              whileHover={{ y: -5 }}
+              initial={{ opacity: 0, y: 26, scale: 0.94 }}
+              whileInView={{ opacity: 1, y: 0, scale: 1 }}
+              viewport={{ once: true, margin: "-30px" }}
+              transition={{ type: "spring", stiffness: 250, damping: 22, delay: idx * 0.065 }}
+              whileHover={{ y: -8, scale: 1.015 }}
               onClick={() => setSelectedPhoto(item)}
-              className="group cursor-pointer bg-white rounded-2xl border border-pink-200/80 shadow-card hover:shadow-boutiqueHover overflow-hidden flex flex-col transition-shadow duration-300"
+              className="card-boutique-3d group cursor-pointer bg-white rounded-2xl border border-pink-200/80 shadow-card overflow-hidden flex flex-col"
             >
+              <div className="card-sheen-overlay z-10" />
               <div className="relative aspect-[4/3] w-full bg-[#FDF2F7] overflow-hidden">
                 <img
                   src={item.image}
                   alt={item.title}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
+                  className="img-zoom-smooth w-full h-full object-cover"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-between p-3">
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/95 text-[#6A1B4D] text-[11px] font-bold shadow">

@@ -84,9 +84,8 @@ export default function AdminPage() {
   const [passwordInput, setPasswordInput] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [authError, setAuthError] = useState("");
-  const [showSetupGuide, setShowSetupGuide] = useState(false);
 
-  // Estado del servidor (Supabase + IA)
+  // Estado del servidor (solo se consulta una vez autenticada la administradora)
   const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
 
   // Navegación del panel administrativo
@@ -124,13 +123,14 @@ export default function AdminPage() {
   const [aiDraftStock, setAiDraftStock] = useState("");
   const [aiPublishing, setAiPublishing] = useState(false);
 
-  // Consultar estado real del servidor
+  // Consultar estado real del servidor únicamente para sesión administrativa autorizada
   useEffect(() => {
+    if (!isAuthorizedAdmin) return;
     fetch("/api/admin/status")
       .then((r) => r.json())
       .then((data: ServerStatus) => setServerStatus(data))
       .catch(() => {});
-  }, []);
+  }, [isAuthorizedAdmin]);
 
   // Verificar sesión activa de Supabase Auth
   useEffect(() => {
@@ -168,7 +168,7 @@ export default function AdminPage() {
             await refreshStoreData(true);
           } else {
             setAuthError(
-              "Tu cuenta está autenticada pero no tiene permisos de administradora autorizada en public.admin_users."
+              "Tu cuenta no cuenta con permisos de administración autorizados."
             );
             await supabase.auth.signOut();
             setIsAuthorizedAdmin(false);
@@ -205,9 +205,7 @@ export default function AdminPage() {
     setAuthError("");
 
     if (!supabase || !isSupabaseConfigured) {
-      setAuthError(
-        "Supabase Auth no está configurado aún. Configura NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY."
-      );
+      setAuthError("Panel administrativo temporalmente no disponible.");
       return;
     }
 
@@ -223,7 +221,7 @@ export default function AdminPage() {
       if (!ok) {
         await supabase.auth.signOut();
         throw new Error(
-          "Acceso denegado: este usuario no figura como administrador autorizado en public.admin_users."
+          "Acceso denegado: esta cuenta no tiene autorización administrativa."
         );
       }
 
@@ -234,7 +232,7 @@ export default function AdminPage() {
       await refreshStoreData(true);
     } catch (err) {
       setAuthError(
-        err instanceof Error ? err.message : "Error al autenticar con Supabase Auth."
+        err instanceof Error ? err.message : "No fue posible iniciar sesión."
       );
     } finally {
       setAuthSubmitting(false);
@@ -619,16 +617,14 @@ export default function AdminPage() {
   };
 
   // ============================================================================
-  // PANTALLA DE AUTENTICACIÓN SEGURA (SUPABASE AUTH)
+  // PANTALLA DE AUTENTICACIÓN SEGURA
   // ============================================================================
   if (authChecking) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#FDF2F7] p-4">
         <div className="bg-white rounded-3xl p-8 shadow-boutique border border-pink-200 flex flex-col items-center gap-3 text-center max-w-sm w-full">
           <Loader2 className="w-8 h-8 text-[#D81B60] animate-spin" />
-          <p className="text-sm font-bold text-[#6A1B4D]">
-            Verificando sesión segura en Supabase Auth...
-          </p>
+          <p className="text-sm font-bold text-[#6A1B4D]">Verificando sesión...</p>
         </div>
       </div>
     );
@@ -636,102 +632,55 @@ export default function AdminPage() {
 
   if (!isAuthorizedAdmin) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-[#FDF2F7] to-[#FCE4EC]">
-        <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-boutique border border-pink-200 space-y-5">
-          <div className="flex items-center justify-between">
-            <Link
-              href="/"
-              className="inline-flex items-center gap-1.5 text-xs font-bold text-[#D81B60] hover:underline"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Volver a la tienda</span>
-            </Link>
-            <span className="px-2.5 py-0.5 rounded-full bg-pink-100 text-[#880E4F] text-[10px] font-extrabold uppercase">
-              Supabase Auth • /admin
-            </span>
-          </div>
-
-          <div className="text-center space-y-2">
-            <div className="w-12 h-12 rounded-2xl bg-[#FDF2F7] border border-pink-200 text-[#D81B60] flex items-center justify-center mx-auto">
-              <Lock className="w-6 h-6" />
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-[#FDF2F7] via-[#FCEBF3] to-[#FCE4EC]">
+        <div className="bg-white rounded-3xl max-w-md w-full p-7 sm:p-8 shadow-boutique border border-pink-200 text-center space-y-6">
+          {/* Logotipo Oficial */}
+          <div className="flex justify-center">
+            <div className="bg-[#FDF2F7] p-3 rounded-2xl border border-pink-100 shadow-sm inline-flex items-center justify-center">
+              <img
+                src="/images/logo-header.jpg"
+                alt="Regalos, Disfraces y Más — Los Ángeles"
+                className="h-20 sm:h-24 w-auto object-contain rounded-xl"
+              />
             </div>
-            <h1 className="text-xl font-extrabold text-[#6A1B4D]">
-              Panel Administrativo — Los Ángeles
-            </h1>
-            <p className="text-xs text-gray-600">
-              Acceso exclusivo para la propietaria mediante autenticación real de Supabase Auth.
-            </p>
           </div>
 
           {!isSupabaseConfigured ? (
-            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 text-xs text-amber-950 space-y-2.5">
-              <div className="flex items-center gap-2 font-extrabold text-amber-900">
-                <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0" />
-                <span>Configuración de Supabase Requerida</span>
+            <div className="space-y-4">
+              <div className="w-11 h-11 rounded-2xl bg-pink-50 border border-pink-200 text-[#D81B60] flex items-center justify-center mx-auto">
+                <Lock className="w-5 h-5" />
               </div>
-              <p className="leading-relaxed">
-                Por seguridad, la autenticación simulada, las contraseñas fijas y el auto-registro
-                público están deshabilitados. Para activar el inicio de sesión administrativo real y
-                la base de datos PostgreSQL + Storage, sigue estos 4 pasos en tus paneles privados
-                (nunca publiques claves privadas en el chat):
+              <h1 className="text-lg sm:text-xl font-extrabold text-[#6A1B4D]">
+                Panel administrativo temporalmente no disponible
+              </h1>
+              <p className="text-xs sm:text-sm text-gray-600 leading-relaxed">
+                Regalos, Disfraces y Más — Los Ángeles
               </p>
-              <ol className="list-decimal pl-5 space-y-1.5 font-medium text-[11.5px]">
-                <li>
-                  <strong>Proyecto Supabase:</strong> Crea o abre tu proyecto en{" "}
-                  <code>supabase.com/dashboard</code> y ejecuta el archivo{" "}
-                  <code>supabase/schema.sql</code> en el <strong>SQL Editor</strong>.
-                </li>
-                <li>
-                  <strong>Crear usuario propietario en Auth:</strong> En{" "}
-                  <em>Authentication → Users → Add user → Create new user</em>, ingresa el correo y
-                  contraseña de la propietaria con <em>Auto Confirm User</em> activado.
-                </li>
-                <li>
-                  <strong>Autorizar como administradora única:</strong> En el{" "}
-                  <strong>SQL Editor</strong> ejecuta:{" "}
-                  <code>SELECT public.authorize_admin_by_email(&apos;tu-correo@dominio.com&apos;);</code>
-                </li>
-                <li>
-                  <strong>Variables en Vercel y .env.local:</strong> Configura{" "}
-                  <code>NEXT_PUBLIC_SUPABASE_URL</code>, <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>{" "}
-                  y <code>GEMINI_API_KEY</code>.
-                </li>
-              </ol>
+              <div className="pt-2">
+                <Link
+                  href="/"
+                  className="btn-shimmer inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-[#E91E63] via-[#D81B60] to-[#AD1457] text-white text-xs sm:text-sm font-bold shadow-boutique hover:shadow-boutiqueHover transition"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Volver a la tienda</span>
+                </Link>
+              </div>
             </div>
           ) : (
-            <>
-              <div className="p-3 rounded-2xl bg-pink-50/80 border border-pink-200 text-[11px] text-[#6A1B4D] flex items-center justify-between gap-2">
-                <span>
-                  🔒 <strong>Protección anti-apropiación activa:</strong> Solo cuentas autorizadas
-                  en <code>public.admin_users</code> pueden ingresar.
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setShowSetupGuide(!showSetupGuide)}
-                  className="text-[#D81B60] font-bold underline shrink-0"
-                >
-                  {showSetupGuide ? "Ocultar guía" : "Guía propietaria"}
-                </button>
+            <div className="space-y-5 text-left">
+              <div className="text-center space-y-1.5">
+                <h1 className="text-xl font-extrabold text-[#6A1B4D]">
+                  Panel Administrativo — Los Ángeles
+                </h1>
+                <p className="text-xs text-gray-600">
+                  Inicia sesión con tu cuenta de administradora autorizada.
+                </p>
               </div>
-
-              {showSetupGuide && (
-                <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-[11px] text-amber-950 space-y-1.5">
-                  <p className="font-bold">¿Cómo autorizar la cuenta de la propietaria?</p>
-                  <p>
-                    1. Crea el usuario en{" "}
-                    <strong>Supabase Dashboard → Authentication → Users → Add user</strong>.
-                  </p>
-                  <p>
-                    2. En el <strong>SQL Editor</strong> de Supabase ejecuta:{" "}
-                    <code>SELECT public.authorize_admin_by_email(&apos;correo@ejemplo.com&apos;);</code>
-                  </p>
-                </div>
-              )}
 
               <form onSubmit={handleSupabaseAuth} className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-1">
-                    Correo electrónico de administradora *
+                    Correo electrónico *
                   </label>
                   <input
                     type="email"
@@ -739,14 +688,14 @@ export default function AdminPage() {
                     autoComplete="email"
                     value={emailInput}
                     onChange={(e) => setEmailInput(e.target.value)}
-                    placeholder="propietaria@tudominio.com"
+                    placeholder="correo@ejemplo.com"
                     className="w-full px-4 py-2.5 text-sm rounded-xl border border-pink-200 focus:outline-none focus:ring-2 focus:ring-[#D81B60]/40"
                   />
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-1">
-                    Contraseña segura *
+                    Contraseña *
                   </label>
                   <input
                     type="password"
@@ -755,7 +704,7 @@ export default function AdminPage() {
                     autoComplete="current-password"
                     value={passwordInput}
                     onChange={(e) => setPasswordInput(e.target.value)}
-                    placeholder="Mínimo 6 caracteres..."
+                    placeholder="Ingresa tu contraseña..."
                     className="w-full px-4 py-2.5 text-sm rounded-xl border border-pink-200 focus:outline-none focus:ring-2 focus:ring-[#D81B60]/40"
                   />
                 </div>
@@ -769,43 +718,24 @@ export default function AdminPage() {
                 <button
                   type="submit"
                   disabled={authSubmitting}
-                  className="w-full py-3 rounded-full bg-gradient-to-r from-[#E91E63] to-[#C2185B] text-white text-sm font-bold shadow-md hover:brightness-105 transition disabled:opacity-60 flex items-center justify-center gap-2"
+                  className="btn-shimmer w-full py-3 rounded-full bg-gradient-to-r from-[#E91E63] to-[#C2185B] text-white text-sm font-bold shadow-md hover:brightness-105 transition disabled:opacity-60 flex items-center justify-center gap-2"
                 >
                   {authSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                  <span>Ingresar al Panel Administrativo</span>
+                  <span>Iniciar sesión</span>
                 </button>
               </form>
-            </>
-          )}
 
-          {/* Indicador en vivo de conexiones del servidor */}
-          <div className="p-3.5 rounded-2xl bg-[#FDF2F7] border border-pink-200 text-[11px] text-[#6A1B4D] space-y-1.5">
-            <p className="font-extrabold uppercase tracking-wide text-[10px] text-[#D81B60]">
-              Diagnóstico de Servicios en Servidor
-            </p>
-            <div className="flex items-center justify-between">
-              <span>Supabase Auth, PostgreSQL & Storage:</span>
-              <span
-                className={`font-bold ${
-                  isSupabaseConfigured ? "text-emerald-700" : "text-amber-700"
-                }`}
-              >
-                {isSupabaseConfigured ? "Conectado" : "Pendiente de credenciales"}
-              </span>
+              <div className="pt-2 text-center">
+                <Link
+                  href="/"
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-[#D81B60] hover:underline"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Volver a la tienda</span>
+                </Link>
+              </div>
             </div>
-            <div className="flex items-center justify-between">
-              <span>Asistente IA Multimodal (Servidor):</span>
-              <span
-                className={`font-bold ${
-                  serverStatus?.aiConfigured ? "text-emerald-700" : "text-amber-700"
-                }`}
-              >
-                {serverStatus?.aiConfigured
-                  ? `Activo (${serverStatus.aiProvider?.toUpperCase()})`
-                  : "Pendiente GEMINI_API_KEY"}
-              </span>
-            </div>
-          </div>
+          )}
         </div>
       </div>
     );

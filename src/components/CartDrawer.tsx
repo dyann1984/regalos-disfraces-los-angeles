@@ -115,15 +115,15 @@ export default function CartDrawer() {
           className="fixed inset-0 z-50 flex justify-end bg-black/45 backdrop-blur-sm"
         >
           <motion.div
-            initial={{ x: "100%" }}
-            animate={{ x: 0 }}
-            exit={{ x: "100%" }}
-            transition={{ type: "spring", stiffness: 320, damping: 30 }}
+            initial={{ x: "100%", opacity: 0.7 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: "100%", opacity: 0.7 }}
+            transition={{ type: "spring", stiffness: 310, damping: 28 }}
             onClick={(e) => e.stopPropagation()}
             className="bg-white w-full max-w-md h-full flex flex-col shadow-2xl border-l border-pink-200"
           >
             {/* Encabezado */}
-            <div className="px-5 py-4 bg-gradient-to-r from-[#FDF2F7] to-[#FCE4EC] border-b border-pink-200 flex items-center justify-between">
+            <div className="px-5 py-4 bg-gradient-to-r from-[#FDF2F7] via-[#FCEBF3] to-[#FCE4EC] border-b border-pink-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <ShoppingBag className="w-5 h-5 text-[#D81B60]" />
                 <h2 className="text-base font-bold text-[#6A1B4D]">
@@ -146,13 +146,14 @@ export default function CartDrawer() {
                 )}
                 <motion.button
                   type="button"
+                  whileHover={{ scale: 1.08, rotate: 90 }}
                   whileTap={{ scale: 0.9 }}
                   onClick={() => {
                     setStep("cart");
                     setIsCartOpen(false);
                   }}
                   aria-label="Cerrar carrito"
-                  className="w-8 h-8 rounded-full bg-white text-[#6A1B4D] hover:bg-pink-100 flex items-center justify-center transition"
+                  className="w-8 h-8 rounded-full bg-white text-[#6A1B4D] hover:bg-pink-100 flex items-center justify-center shadow-sm transition"
                 >
                   <X className="w-4 h-4" />
                 </motion.button>
@@ -165,11 +166,12 @@ export default function CartDrawer() {
                 <>
                   {cart.length === 0 ? (
                     <motion.div
-                      initial={{ opacity: 0, y: 12 }}
+                      initial={{ opacity: 0, y: 16 }}
                       animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.35 }}
                       className="h-full flex flex-col items-center justify-center text-center py-12"
                     >
-                      <div className="w-16 h-16 rounded-full bg-pink-50 flex items-center justify-center text-[#D81B60] mb-3 shadow-inner">
+                      <div className="w-16 h-16 rounded-full bg-pink-50 border border-pink-200/80 flex items-center justify-center text-[#D81B60] mb-3 shadow-inner animate-float-slow">
                         <Gift className="w-8 h-8" />
                       </div>
                       <p className="text-base font-bold text-gray-800">

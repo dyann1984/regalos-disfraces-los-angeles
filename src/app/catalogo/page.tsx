@@ -359,8 +359,8 @@ export default function CatalogoPage() {
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3.5 sm:gap-4">
-            {filteredProducts.map((product) => (
-              <ProductCard key={product.id} product={product} />
+            {filteredProducts.map((product, idx) => (
+              <ProductCard key={product.id} product={product} index={idx} />
             ))}
           </div>
         )}

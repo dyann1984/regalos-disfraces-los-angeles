@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { PhoneCall, Shield, Lock, Heart, MapPin, Navigation, ExternalLink } from "lucide-react";
+import { PhoneCall, Shield, Heart, MapPin, Navigation, ExternalLink } from "lucide-react";
 import { BUSINESS_INFO } from "@/data/mockCatalog";
 import { getDirectWhatsAppUrl } from "@/lib/whatsapp";
 
@@ -166,16 +166,6 @@ export default function Footer() {
                 <MapPin className="w-3.5 h-3.5 text-[#D81B60]" />
                 <span>Google Maps</span>
               </a>
-            </div>
-
-            <div className="pt-3 border-t border-pink-300/60">
-              <Link
-                href="/admin"
-                className="inline-flex items-center gap-1.5 text-xs font-bold text-[#6A1B4D] hover:text-[#D81B60]"
-              >
-                <Lock className="w-3.5 h-3.5" />
-                <span>Acceso Propietaria (/admin)</span>
-              </Link>
             </div>
           </div>
         </div>

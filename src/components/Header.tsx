@@ -6,7 +6,6 @@ import { useRouter, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
-  User,
   Heart,
   ShoppingCart,
   Home,
@@ -124,14 +123,14 @@ export default function Header() {
             </motion.button>
           </form>
 
-          {/* Botón WhatsApp Oficial + Iconos de Cuenta, Favoritos y Carrito */}
+          {/* Botón WhatsApp Oficial + Iconos de Favoritos y Carrito */}
           <div className="flex items-center gap-2 sm:gap-4 shrink-0">
             <motion.a
               href={getDirectWhatsAppUrl()}
               target="_blank"
               rel="noopener noreferrer"
-              whileHover={{ y: -2, scale: 1.02 }}
-              whileTap={{ scale: 0.97 }}
+              whileHover={{ y: -2, scale: 1.03 }}
+              whileTap={{ scale: 0.96 }}
               className="btn-shimmer hidden sm:flex items-center gap-2 bg-gradient-to-r from-[#25D366] to-[#1DA851] text-white rounded-full px-3.5 py-1.5 shadow-md hover:shadow-lg transition"
               aria-label={`Contactar por WhatsApp al ${BUSINESS_INFO.whatsappFormatted}`}
             >
@@ -148,66 +147,72 @@ export default function Header() {
               </div>
             </motion.a>
 
-            {/* Cuenta / Admin */}
-            <Link
-              href="/admin"
-              className="flex flex-col items-center text-[#5A2244] hover:text-[#D81B60] transition px-1.5 py-1 rounded-xl hover:bg-white/70"
-              title="Panel de Administración y Pedidos"
-            >
-              <User className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2]" />
-              <span className="text-[11px] font-semibold mt-0.5">Cuenta</span>
-            </Link>
-
-            {/* Favoritos con animación de contador */}
+            {/* Favoritos con animación fluida de pulso y contador */}
             <motion.button
               type="button"
-              whileHover={{ y: -1 }}
-              whileTap={{ scale: 0.93 }}
+              whileHover={{ y: -2, scale: 1.05 }}
+              whileTap={{ scale: 0.92 }}
               onClick={() => setIsFavoritesOpen(true)}
-              className="relative flex flex-col items-center text-[#5A2244] hover:text-[#D81B60] transition px-1.5 py-1 rounded-xl hover:bg-white/70"
+              className="relative flex flex-col items-center text-[#5A2244] hover:text-[#D81B60] transition px-2 py-1 rounded-xl hover:bg-white/80 hover:shadow-sm"
               aria-label={`Ver favoritos (${favorites.length})`}
             >
-              <div className="relative">
-                <Heart className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2]" />
+              <motion.div
+                key={`fav-icon-${favorites.length}`}
+                initial={{ scale: 0.85 }}
+                animate={{ scale: [1, 1.24, 0.95, 1] }}
+                transition={{ duration: 0.38, ease: "easeOut" }}
+                className="relative"
+              >
+                <Heart
+                  className={`w-5 h-5 sm:w-6 sm:h-6 stroke-[2] transition-colors ${
+                    favorites.length > 0 ? "text-[#E91E63] fill-[#F48FB1]/40" : ""
+                  }`}
+                />
                 <AnimatePresence mode="popLayout">
                   {favorites.length > 0 && (
                     <motion.span
                       key={favorites.length}
-                      initial={{ scale: 0.4, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      exit={{ scale: 0.4, opacity: 0 }}
-                      transition={{ type: "spring", stiffness: 450, damping: 18 }}
-                      className="absolute -top-1.5 -right-2 bg-[#E91E63] text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center shadow"
+                      initial={{ scale: 0.3, opacity: 0, y: -4 }}
+                      animate={{ scale: 1, opacity: 1, y: 0 }}
+                      exit={{ scale: 0.3, opacity: 0 }}
+                      transition={{ type: "spring", stiffness: 520, damping: 15 }}
+                      className="absolute -top-1.5 -right-2 bg-gradient-to-r from-[#E91E63] to-[#C2185B] text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center shadow-md ring-2 ring-white"
                     >
                       {favorites.length}
                     </motion.span>
                   )}
                 </AnimatePresence>
-              </div>
+              </motion.div>
               <span className="text-[11px] font-semibold mt-0.5">Favoritos</span>
             </motion.button>
 
-            {/* Carrito con animación de contador */}
+            {/* Carrito con animación fluida de rebote y contador */}
             <motion.button
               type="button"
-              whileHover={{ y: -1 }}
-              whileTap={{ scale: 0.93 }}
+              whileHover={{ y: -2, scale: 1.05 }}
+              whileTap={{ scale: 0.92 }}
               onClick={() => setIsCartOpen(true)}
-              className="relative flex flex-col items-center text-[#5A2244] hover:text-[#D81B60] transition px-1.5 py-1 rounded-xl hover:bg-white/70"
+              className="relative flex flex-col items-center text-[#5A2244] hover:text-[#D81B60] transition px-2 py-1 rounded-xl hover:bg-white/80 hover:shadow-sm"
               aria-label={`Abrir carrito de compras (${cartCount} artículos)`}
             >
-              <div className="relative">
+              <motion.div
+                key={`cart-icon-${cartCount}`}
+                initial={{ scale: 0.85 }}
+                animate={{ scale: [1, 1.22, 0.95, 1] }}
+                transition={{ duration: 0.38, ease: "easeOut" }}
+                className="relative"
+              >
                 <ShoppingCart className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2]" />
                 <motion.span
                   key={cartCount}
-                  initial={{ scale: 0.5, y: -3 }}
+                  initial={{ scale: 0.4, y: -4 }}
                   animate={{ scale: 1, y: 0 }}
-                  transition={{ type: "spring", stiffness: 500, damping: 16 }}
-                  className="absolute -top-1.5 -right-2.5 bg-[#D81B60] text-white text-[10px] font-bold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center shadow"
+                  transition={{ type: "spring", stiffness: 520, damping: 15 }}
+                  className="absolute -top-1.5 -right-2.5 bg-gradient-to-r from-[#D81B60] to-[#AD1457] text-white text-[10px] font-bold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center shadow-md ring-2 ring-white"
                 >
                   {cartCount}
                 </motion.span>
-              </div>
+              </motion.div>
               <span className="text-[11px] font-semibold mt-0.5">Carrito</span>
             </motion.button>
           </div>
