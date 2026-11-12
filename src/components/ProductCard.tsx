@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { Heart, ShoppingCart, Eye, Check } from "lucide-react";
+import { Heart, ShoppingCart, Eye, Check, PhoneCall } from "lucide-react";
 import { Product } from "@/types/store";
 import { useStore } from "@/context/StoreContext";
-import { formatMXN } from "@/lib/whatsapp";
+import { formatMXN, getDirectWhatsAppUrl } from "@/lib/whatsapp";
 
 const BADGE_STYLES: Record<
   NonNullable<Product["badge"]>["variant"],
@@ -55,7 +55,15 @@ export default function ProductCard({ product }: { product: Product }) {
 
   const fav = isFavorite(product.id);
   const effectivePrice = product.promoPrice ?? product.price;
-  const isOutOfStock = product.stock !== null && product.stock <= 0;
+  const isReferenceProduct = Boolean(
+    product.isDemo ||
+      effectivePrice === null ||
+      effectivePrice === undefined ||
+      effectivePrice <= 0 ||
+      product.stock === null ||
+      product.stock === undefined
+  );
+  const isOutOfStock = !isReferenceProduct && product.stock !== null && product.stock <= 0;
 
   const handleMouseMove = (e: React.MouseEvent<HTMLElement>) => {
     if (!canHover3D || shouldReduceMotion) return;
@@ -84,6 +92,7 @@ export default function ProductCard({ product }: { product: Product }) {
   };
 
   const handleAddToCart = () => {
+    if (isReferenceProduct) return;
     addToCart(product, 1);
     setJustAdded(true);
     setTimeout(() => {
@@ -133,7 +142,7 @@ export default function ProductCard({ product }: { product: Product }) {
           {/* Etiqueta superior izquierda */}
           {product.badge && (
             <span
-              className={`absolute top-0.5 left-0.5 inline-flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-bold shadow-md ${
+              className={`absolute top-1 left-1 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold shadow-md ${
                 BADGE_STYLES[product.badge.variant].bg
               }`}
             >
@@ -148,7 +157,7 @@ export default function ProductCard({ product }: { product: Product }) {
             whileTap={{ scale: 0.85 }}
             onClick={() => toggleFavorite(product.id)}
             aria-label={fav ? "Quitar de favoritos" : "Agregar a favoritos"}
-            className={`absolute top-0.5 right-0.5 w-8 h-8 rounded-full flex items-center justify-center shadow-md transition ${
+            className={`absolute top-1 right-1 w-8 h-8 rounded-full flex items-center justify-center shadow-md transition ${
               fav
                 ? "bg-[#E91E63] text-white"
                 : "bg-white text-[#D81B60] hover:bg-pink-50"
@@ -157,20 +166,20 @@ export default function ProductCard({ product }: { product: Product }) {
             <Heart className={`w-4 h-4 ${fav ? "fill-current" : ""}`} />
           </motion.button>
 
-          {/* Indicador de producto de demostración + Vista rápida */}
+          {/* Indicador de producto de referencia + Vista rápida */}
           <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between pointer-events-none">
-            {product.isDemo && (
+            {isReferenceProduct && (
               <span
-                title="Muestra de demostración — Precio y existencia se asignarán desde el panel administrativo"
-                className="bg-black/60 backdrop-blur-sm text-white text-[9px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md"
+                title="Producto de referencia — Consulta disponibilidad"
+                className="bg-[#6A1B4D]/85 backdrop-blur-sm text-white text-[9px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md"
               >
-                Muestra Demo
+                Referencia
               </span>
             )}
             <button
               type="button"
               onClick={() => setActiveProductModal(product)}
-              className="pointer-events-auto ml-auto opacity-0 group-hover:opacity-100 bg-white/95 text-[#6A1B4D] hover:text-[#D81B60] text-[10px] font-bold px-2.5 py-1 rounded-full shadow flex items-center gap-1 transition"
+              className="pointer-events-auto ml-auto opacity-95 sm:opacity-0 group-hover:opacity-100 bg-white/95 text-[#6A1B4D] hover:text-[#D81B60] text-[10px] font-bold px-2.5 py-1 rounded-full shadow flex items-center gap-1 transition"
             >
               <Eye className="w-3 h-3" />
               <span>Detalles</span>
@@ -192,10 +201,10 @@ export default function ProductCard({ product }: { product: Product }) {
         </div>
       </div>
 
-      {/* Precio (sin inventar importes definitivos) y Botón Agregar al Carrito */}
+      {/* Estado de precio / referencia y Acción Principal */}
       <div className="mt-2.5 pt-1 px-1">
-        <div className="flex items-baseline justify-center gap-1.5 mb-2">
-          {effectivePrice !== null && effectivePrice !== undefined ? (
+        <div className="flex items-baseline justify-center gap-1.5 mb-2 text-center">
+          {!isReferenceProduct && effectivePrice !== null && effectivePrice !== undefined ? (
             <>
               <span className="text-sm sm:text-[16px] font-extrabold text-[#C2185B]">
                 {formatMXN(effectivePrice)}
@@ -207,49 +216,64 @@ export default function ProductCard({ product }: { product: Product }) {
               )}
             </>
           ) : (
-            <span className="text-xs font-bold text-[#880E4F] bg-pink-50 px-2.5 py-0.5 rounded-full border border-pink-200/80">
-              Precio por confirmar
+            <span className="text-[10.5px] leading-tight font-bold text-[#880E4F] bg-pink-50 px-2.5 py-1 rounded-xl border border-pink-200/80 block w-full">
+              Producto de referencia — Consulta disponibilidad
             </span>
           )}
         </div>
 
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.95 }}
-          onClick={handleAddToCart}
-          disabled={isOutOfStock}
-          className={`btn-shimmer w-full py-2 px-3 rounded-full text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm hover:shadow-md transition-all duration-200 ${
-            justAdded
-              ? "bg-gradient-to-r from-emerald-500 to-emerald-600"
-              : "bg-gradient-to-r from-[#EC407A] via-[#D81B60] to-[#C2185B] hover:from-[#D81B60] hover:to-[#AD1457]"
-          } disabled:opacity-50`}
-        >
-          <AnimatePresence mode="wait" initial={false}>
-            {justAdded ? (
-              <motion.span
-                key="added"
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.8 }}
-                className="inline-flex items-center gap-1.5"
-              >
-                <Check className="w-3.5 h-3.5 stroke-[3]" />
-                <span>¡Agregado!</span>
-              </motion.span>
-            ) : (
-              <motion.span
-                key="default"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="inline-flex items-center gap-1.5"
-              >
-                <ShoppingCart className="w-3.5 h-3.5" />
-                <span>{!isOutOfStock ? "Agregar al carrito" : "Agotado"}</span>
-              </motion.span>
+        {isReferenceProduct ? (
+          <motion.a
+            href={getDirectWhatsAppUrl(
+              `¡Hola! Vi en el catálogo de Regalos, Disfraces y Más — Los Ángeles el producto "${product.name} ${product.subtitle}" y me gustaría consultar su disponibilidad y precio.`
             )}
-          </AnimatePresence>
-        </motion.button>
+            target="_blank"
+            rel="noopener noreferrer"
+            whileTap={{ scale: 0.96 }}
+            className="btn-shimmer w-full py-2 px-3 rounded-full bg-gradient-to-r from-[#25D366] to-[#1DA851] hover:from-[#1DA851] hover:to-[#128C7E] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm hover:shadow-md transition-all duration-200"
+          >
+            <PhoneCall className="w-3.5 h-3.5 shrink-0" />
+            <span>Consultar por WhatsApp</span>
+          </motion.a>
+        ) : (
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.95 }}
+            onClick={handleAddToCart}
+            disabled={isOutOfStock}
+            className={`btn-shimmer w-full py-2 px-3 rounded-full text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm hover:shadow-md transition-all duration-200 ${
+              justAdded
+                ? "bg-gradient-to-r from-emerald-500 to-emerald-600"
+                : "bg-gradient-to-r from-[#EC407A] via-[#D81B60] to-[#C2185B] hover:from-[#D81B60] hover:to-[#AD1457]"
+            } disabled:opacity-50`}
+          >
+            <AnimatePresence mode="wait" initial={false}>
+              {justAdded ? (
+                <motion.span
+                  key="added"
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  className="inline-flex items-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                  <span>¡Agregado!</span>
+                </motion.span>
+              ) : (
+                <motion.span
+                  key="default"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="inline-flex items-center gap-1.5"
+                >
+                  <ShoppingCart className="w-3.5 h-3.5" />
+                  <span>{!isOutOfStock ? "Agregar al carrito" : "Agotado"}</span>
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </motion.button>
+        )}
       </div>
     </motion.article>
   );

@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import { useRouter, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
@@ -17,6 +18,7 @@ import {
   Menu,
   X,
   PhoneCall,
+  MapPin,
 } from "lucide-react";
 import { useStore } from "@/context/StoreContext";
 import { BUSINESS_INFO } from "@/data/mockCatalog";
@@ -24,6 +26,8 @@ import { getDirectWhatsAppUrl } from "@/lib/whatsapp";
 import { CategorySlug } from "@/types/store";
 
 export default function Header() {
+  const router = useRouter();
+  const pathname = usePathname();
   const {
     categories,
     searchQuery,
@@ -39,21 +43,25 @@ export default function Header() {
   const [catalogDropdownOpen, setCatalogDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const handleCategorySelect = (slug: CategorySlug | "all", sectionId = "catalogo-principal") => {
+  const handleCategorySelect = (slug: CategorySlug | "all") => {
     setSelectedCategory(slug);
     setCatalogDropdownOpen(false);
     setMobileMenuOpen(false);
-    const el = document.getElementById(sectionId);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth" });
+    if (slug === "all") {
+      router.push("/catalogo");
+    } else {
+      router.push(`/catalogo?categoria=${encodeURIComponent(slug)}`);
     }
   };
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const el = document.getElementById("catalogo-principal");
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth" });
+    setMobileMenuOpen(false);
+    const trimmed = searchQuery.trim();
+    if (trimmed) {
+      router.push(`/catalogo?q=${encodeURIComponent(trimmed)}`);
+    } else {
+      router.push("/catalogo");
     }
   };
 
@@ -234,47 +242,61 @@ export default function Header() {
         className="hidden lg:block border-t border-pink-200/60 bg-white/60 backdrop-blur-sm"
       >
         <div className="max-w-[1320px] mx-auto px-6 py-1.5 flex items-center justify-center gap-2 text-sm font-semibold text-[#5A2244]">
-          <motion.button
-            type="button"
-            whileHover={{ y: -1 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={() => {
-              setSelectedCategory("all");
-              window.scrollTo({ top: 0, behavior: "smooth" });
-            }}
+          <Link
+            href="/"
+            onClick={() => setSelectedCategory("all")}
             className={`flex items-center gap-2 px-4 py-1.5 rounded-full transition ${
-              selectedCategory === "all"
+              pathname === "/" && selectedCategory === "all"
                 ? "bg-[#F5C2D7]/90 text-[#880E4F] shadow-sm font-bold"
                 : "hover:bg-pink-100/80"
             }`}
           >
             <Home className="w-4 h-4 text-[#D81B60]" />
             <span>Inicio</span>
-          </motion.button>
+          </Link>
 
           <span className="text-pink-300 select-none">|</span>
 
-          {/* Dropdown Catálogo con AnimatePresence */}
+          {/* Enlace Catálogo + Dropdown con AnimatePresence */}
           <div
             className="relative"
             onMouseEnter={() => setCatalogDropdownOpen(true)}
             onMouseLeave={() => setCatalogDropdownOpen(false)}
           >
-            <motion.button
-              type="button"
-              whileHover={{ y: -1 }}
-              onClick={() => setCatalogDropdownOpen(!catalogDropdownOpen)}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded-full hover:bg-pink-100/80 transition"
-              aria-expanded={catalogDropdownOpen}
-            >
-              <Gift className="w-4 h-4 text-[#D81B60]" />
-              <span>Catálogo</span>
-              <ChevronDown
-                className={`w-3.5 h-3.5 text-[#D81B60] transition-transform duration-200 ${
-                  catalogDropdownOpen ? "rotate-180" : ""
+            <div className="flex items-center">
+              <Link
+                href="/catalogo"
+                onClick={() => {
+                  setSelectedCategory("all");
+                  setCatalogDropdownOpen(false);
+                }}
+                className={`flex items-center gap-1.5 pl-4 pr-2 py-1.5 rounded-l-full transition ${
+                  pathname === "/catalogo"
+                    ? "bg-[#F5C2D7]/90 text-[#880E4F] font-bold"
+                    : "hover:bg-pink-100/80"
                 }`}
-              />
-            </motion.button>
+              >
+                <Gift className="w-4 h-4 text-[#D81B60]" />
+                <span>Catálogo</span>
+              </Link>
+              <button
+                type="button"
+                onClick={() => setCatalogDropdownOpen(!catalogDropdownOpen)}
+                aria-label="Desplegar categorías del catálogo"
+                aria-expanded={catalogDropdownOpen}
+                className={`pr-3 pl-1 py-1.5 rounded-r-full transition ${
+                  pathname === "/catalogo"
+                    ? "bg-[#F5C2D7]/90 text-[#880E4F]"
+                    : "hover:bg-pink-100/80"
+                }`}
+              >
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-[#D81B60] transition-transform duration-200 ${
+                    catalogDropdownOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+            </div>
 
             <AnimatePresence>
               {catalogDropdownOpen && (
@@ -285,24 +307,30 @@ export default function Header() {
                   transition={{ duration: 0.18, ease: "easeOut" }}
                   className="absolute left-0 mt-1 w-64 bg-white rounded-2xl shadow-boutiqueHover border border-pink-100 py-2 z-50"
                 >
-                  <button
-                    type="button"
-                    onClick={() => handleCategorySelect("all")}
+                  <Link
+                    href="/catalogo"
+                    onClick={() => {
+                      setSelectedCategory("all");
+                      setCatalogDropdownOpen(false);
+                    }}
                     className="w-full text-left px-4 py-2 text-xs font-bold text-[#D81B60] hover:bg-pink-50 transition flex items-center justify-between"
                   >
                     <span>✨ Ver todo el catálogo</span>
                     <span>→</span>
-                  </button>
+                  </Link>
                   <div className="my-1 border-t border-pink-100" />
                   {categories.map((cat) => (
-                    <button
+                    <Link
                       key={cat.id}
-                      type="button"
-                      onClick={() => handleCategorySelect(cat.slug)}
+                      href={`/catalogo?categoria=${encodeURIComponent(cat.slug)}`}
+                      onClick={() => {
+                        setSelectedCategory(cat.slug);
+                        setCatalogDropdownOpen(false);
+                      }}
                       className="w-full text-left px-4 py-2 text-xs font-medium text-gray-700 hover:bg-pink-50 hover:text-[#D81B60] transition flex items-center justify-between"
                     >
                       <span>{cat.name}</span>
-                    </button>
+                    </Link>
                   ))}
                 </motion.div>
               )}
@@ -311,59 +339,63 @@ export default function Header() {
 
           <span className="text-pink-300 select-none">|</span>
 
-          <motion.button
-            type="button"
-            whileHover={{ y: -1 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={() => handleCategorySelect("regalos")}
+          <Link
+            href="/catalogo?categoria=regalos"
+            onClick={() => setSelectedCategory("regalos")}
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full transition ${
-              selectedCategory === "regalos"
+              selectedCategory === "regalos" && pathname === "/catalogo"
                 ? "bg-[#F5C2D7]/90 text-[#880E4F] font-bold"
                 : "hover:bg-pink-100/80"
             }`}
           >
             <Gift className="w-4 h-4 text-[#D81B60]" />
             <span>Regalos</span>
-          </motion.button>
+          </Link>
 
           <span className="text-pink-300 select-none">|</span>
 
-          <motion.button
-            type="button"
-            whileHover={{ y: -1 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={() => handleCategorySelect("disfraces")}
+          <Link
+            href="/catalogo?categoria=disfraces"
+            onClick={() => setSelectedCategory("disfraces")}
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full transition ${
-              selectedCategory === "disfraces"
+              selectedCategory === "disfraces" && pathname === "/catalogo"
                 ? "bg-[#F5C2D7]/90 text-[#880E4F] font-bold"
                 : "hover:bg-pink-100/80"
             }`}
           >
             <Sparkles className="w-4 h-4 text-[#8E24AA]" />
             <span>Disfraces</span>
-          </motion.button>
+          </Link>
 
           <span className="text-pink-300 select-none">|</span>
 
-          <motion.a
-            href="#nuestra-tienda"
-            whileHover={{ y: -1 }}
+          <Link
+            href="/#nuestra-tienda"
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-full hover:bg-pink-100/80 transition"
           >
             <Store className="w-4 h-4 text-[#D81B60]" />
             <span>Conoce nuestra tienda</span>
-          </motion.a>
+          </Link>
 
           <span className="text-pink-300 select-none">|</span>
 
-          <motion.a
-            href="#contacto"
-            whileHover={{ y: -1 }}
+          <Link
+            href="/#visitanos"
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-full hover:bg-pink-100/80 transition"
+          >
+            <MapPin className="w-4 h-4 text-[#D81B60]" />
+            <span>Visítanos</span>
+          </Link>
+
+          <span className="text-pink-300 select-none">|</span>
+
+          <Link
+            href="/#contacto"
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-full hover:bg-pink-100/80 transition"
           >
             <Mail className="w-4 h-4 text-[#D81B60]" />
             <span>Contacto</span>
-          </motion.a>
+          </Link>
         </div>
       </nav>
 
@@ -379,7 +411,7 @@ export default function Header() {
           >
             <div className="flex items-center justify-between pb-2 border-b border-pink-100">
               <span className="text-xs font-bold uppercase tracking-wider text-[#D81B60]">
-                Categorías de la tienda
+                Categorías y Catálogo
               </span>
               <a
                 href={getDirectWhatsAppUrl()}
@@ -392,34 +424,34 @@ export default function Header() {
               </a>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
+              <Link
+                href="/catalogo"
                 onClick={() => handleCategorySelect("all")}
                 className="text-left px-3 py-2 rounded-xl bg-pink-50 text-xs font-bold text-[#880E4F]"
               >
-                🏠 Todo el Catálogo
-              </button>
+                🛍️ Todo el Catálogo
+              </Link>
               {categories.map((cat) => (
-                <button
+                <Link
                   key={cat.id}
-                  type="button"
+                  href={`/catalogo?categoria=${encodeURIComponent(cat.slug)}`}
                   onClick={() => handleCategorySelect(cat.slug)}
                   className="text-left px-3 py-2 rounded-xl hover:bg-pink-50 text-xs font-medium text-gray-700 border border-pink-100"
                 >
                   {cat.shortName}
-                </button>
+                </Link>
               ))}
             </div>
-            <div className="pt-2 border-t border-pink-100 flex justify-between text-xs font-semibold text-[#5A2244]">
-              <a href="#ofertas-especiales" onClick={() => setMobileMenuOpen(false)}>
-                🔥 Novedades
-              </a>
-              <a href="#nuestra-tienda" onClick={() => setMobileMenuOpen(false)}>
-                🏪 Conoce nuestra tienda
-              </a>
-              <a href="#contacto" onClick={() => setMobileMenuOpen(false)}>
-                📍 Contacto
-              </a>
+            <div className="pt-2 border-t border-pink-100 flex flex-wrap justify-between gap-2 text-xs font-semibold text-[#5A2244]">
+              <Link href="/#nuestra-tienda" onClick={() => setMobileMenuOpen(false)}>
+                🏪 Nuestra tienda
+              </Link>
+              <Link href="/#visitanos" onClick={() => setMobileMenuOpen(false)}>
+                📍 Visítanos
+              </Link>
+              <Link href="/#contacto" onClick={() => setMobileMenuOpen(false)}>
+                💬 Contacto
+              </Link>
             </div>
           </motion.div>
         )}

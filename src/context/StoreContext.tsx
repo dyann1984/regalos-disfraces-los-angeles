@@ -132,11 +132,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }, 1500);
   }, []);
 
-  // Cargar carrito y favoritos de sesión del comprador
+  // Cargar carrito y favoritos de sesión del comprador (filtrando productos de demostración o sin precio confirmado)
   useEffect(() => {
     try {
       const savedCart = localStorage.getItem(CLIENT_SESSION_KEYS.CART);
-      if (savedCart) setCart(JSON.parse(savedCart));
+      if (savedCart) {
+        const parsed: CartItem[] = JSON.parse(savedCart);
+        const validCart = Array.isArray(parsed)
+          ? parsed.filter((item) => {
+              const p = item?.product;
+              if (!p || p.isDemo) return false;
+              const unitPrice = p.promoPrice ?? p.price;
+              return (
+                unitPrice !== null &&
+                unitPrice !== undefined &&
+                unitPrice > 0 &&
+                p.stock !== null &&
+                p.stock !== undefined &&
+                p.stock > 0
+              );
+            })
+          : [];
+        setCart(validCart);
+      }
 
       const savedFavs = localStorage.getItem(CLIENT_SESSION_KEYS.FAVS);
       if (savedFavs) setFavorites(JSON.parse(savedFavs));
@@ -219,12 +237,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     selectedVariants?: Record<string, string>,
     orderNotes?: string
   ) => {
-    if (product.stock !== null && product.stock <= 0) {
+    const effectivePrice = product.promoPrice ?? product.price;
+    if (
+      product.isDemo ||
+      effectivePrice === null ||
+      effectivePrice === undefined ||
+      effectivePrice <= 0 ||
+      product.stock === null ||
+      product.stock === undefined
+    ) {
+      showToast(
+        "Producto de referencia — Consulta disponibilidad directamente por WhatsApp.",
+        "info"
+      );
+      return;
+    }
+
+    if (product.stock <= 0) {
       showToast("Lo sentimos, este producto está agotado temporalmente.", "error");
       return;
     }
 
-    const maxAllowed = product.stock !== null ? product.stock : 99;
+    const maxAllowed = product.stock;
 
     setCart((prev) => {
       const variantSignature = JSON.stringify(selectedVariants || {});

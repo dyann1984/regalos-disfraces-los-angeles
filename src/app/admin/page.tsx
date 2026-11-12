@@ -74,18 +74,17 @@ export default function AdminPage() {
   } = useStore();
 
   // Estado de autenticación real con Supabase Auth
-  const [authChecking, setAuthChecking] = useState(true);
+  const [authChecking, setAuthChecking] = useState(isSupabaseConfigured);
   const [adminEmail, setAdminEmail] = useState<string | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isAuthorizedAdmin, setIsAuthorizedAdmin] = useState(false);
 
-  // Formulario de inicio de sesión / registro inicial de propietaria
-  const [authMode, setAuthMode] = useState<"login" | "register_owner">("login");
+  // Formulario de inicio de sesión seguro (sin auto-registro público para evitar apropiación del panel)
   const [emailInput, setEmailInput] = useState("");
   const [passwordInput, setPasswordInput] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [authError, setAuthError] = useState("");
-  const [authInfoMessage, setAuthInfoMessage] = useState("");
+  const [showSetupGuide, setShowSetupGuide] = useState(false);
 
   // Estado del servidor (Supabase + IA)
   const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
@@ -204,7 +203,6 @@ export default function AdminPage() {
   const handleSupabaseAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError("");
-    setAuthInfoMessage("");
 
     if (!supabase || !isSupabaseConfigured) {
       setAuthError(
@@ -215,53 +213,25 @@ export default function AdminPage() {
 
     setAuthSubmitting(true);
     try {
-      if (authMode === "register_owner") {
-        const { data, error } = await supabase.auth.signUp({
-          email: emailInput.trim(),
-          password: passwordInput,
-        });
-        if (error) throw error;
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: emailInput.trim(),
+        password: passwordInput,
+      });
+      if (error) throw error;
 
-        if (data.session) {
-          const ok = await verifyOrBootstrapAdmin();
-          if (!ok) {
-            await supabase.auth.signOut();
-            throw new Error(
-              "Ya existe una cuenta propietaria registrada. Inicia sesión con la cuenta autorizada."
-            );
-          }
-          setIsAuthorizedAdmin(true);
-          setAdminEmail(data.user?.email || emailInput.trim());
-          setAccessToken(data.session.access_token);
-          await ensureInitialCatalogSeeded();
-          await refreshStoreData(true);
-        } else {
-          setAuthInfoMessage(
-            "Cuenta creada. Si tu proyecto Supabase requiere confirmación por correo, confírmalo en tu bandeja de entrada y luego inicia sesión."
-          );
-          setAuthMode("login");
-        }
-      } else {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: emailInput.trim(),
-          password: passwordInput,
-        });
-        if (error) throw error;
-
-        const ok = await verifyOrBootstrapAdmin();
-        if (!ok) {
-          await supabase.auth.signOut();
-          throw new Error(
-            "Acceso denegado: este usuario no figura como administrador autorizado en public.admin_users."
-          );
-        }
-
-        setIsAuthorizedAdmin(true);
-        setAdminEmail(data.user?.email || emailInput.trim());
-        setAccessToken(data.session?.access_token || null);
-        await ensureInitialCatalogSeeded();
-        await refreshStoreData(true);
+      const ok = await verifyOrBootstrapAdmin();
+      if (!ok) {
+        await supabase.auth.signOut();
+        throw new Error(
+          "Acceso denegado: este usuario no figura como administrador autorizado en public.admin_users."
+        );
       }
+
+      setIsAuthorizedAdmin(true);
+      setAdminEmail(data.user?.email || emailInput.trim());
+      setAccessToken(data.session?.access_token || null);
+      await ensureInitialCatalogSeeded();
+      await refreshStoreData(true);
     } catch (err) {
       setAuthError(
         err instanceof Error ? err.message : "Error al autenticar con Supabase Auth."
@@ -694,66 +664,69 @@ export default function AdminPage() {
           </div>
 
           {!isSupabaseConfigured ? (
-            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 text-xs text-amber-950 space-y-2">
+            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 text-xs text-amber-950 space-y-2.5">
               <div className="flex items-center gap-2 font-extrabold text-amber-900">
                 <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0" />
                 <span>Configuración de Supabase Requerida</span>
               </div>
               <p className="leading-relaxed">
-                Por seguridad, la autenticación simulada y las contraseñas fijas están
-                deshabilitadas. Para activar el inicio de sesión administrativo real y la base de
-                datos PostgreSQL + Storage, configura en tu entorno (<code>.env.local</code> y
-                Vercel):
+                Por seguridad, la autenticación simulada, las contraseñas fijas y el auto-registro
+                público están deshabilitados. Para activar el inicio de sesión administrativo real y
+                la base de datos PostgreSQL + Storage, sigue estos 4 pasos en tus paneles privados
+                (nunca publiques claves privadas en el chat):
               </p>
-              <ul className="list-disc pl-5 space-y-1 font-semibold">
+              <ol className="list-decimal pl-5 space-y-1.5 font-medium text-[11.5px]">
                 <li>
-                  <code>NEXT_PUBLIC_SUPABASE_URL</code>
+                  <strong>Proyecto Supabase:</strong> Crea o abre tu proyecto en{" "}
+                  <code>supabase.com/dashboard</code> y ejecuta el archivo{" "}
+                  <code>supabase/schema.sql</code> en el <strong>SQL Editor</strong>.
                 </li>
                 <li>
-                  <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>
+                  <strong>Crear usuario propietario en Auth:</strong> En{" "}
+                  <em>Authentication → Users → Add user → Create new user</em>, ingresa el correo y
+                  contraseña de la propietaria con <em>Auto Confirm User</em> activado.
                 </li>
                 <li>
-                  <code>GEMINI_API_KEY</code> (para la función &ldquo;Agregar producto con IA&rdquo;)
+                  <strong>Autorizar como administradora única:</strong> En el{" "}
+                  <strong>SQL Editor</strong> ejecuta:{" "}
+                  <code>SELECT public.authorize_admin_by_email(&apos;tu-correo@dominio.com&apos;);</code>
                 </li>
-              </ul>
-              <p className="text-[11px] text-amber-800 pt-1">
-                Ejecuta el archivo <code>supabase/schema.sql</code> en el SQL Editor de tu proyecto
-                Supabase para crear las tablas, el bucket <code>store-media</code> y las políticas
-                RLS.
-              </p>
+                <li>
+                  <strong>Variables en Vercel y .env.local:</strong> Configura{" "}
+                  <code>NEXT_PUBLIC_SUPABASE_URL</code>, <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>{" "}
+                  y <code>GEMINI_API_KEY</code>.
+                </li>
+              </ol>
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-pink-50 border border-pink-200 text-xs font-bold">
+              <div className="p-3 rounded-2xl bg-pink-50/80 border border-pink-200 text-[11px] text-[#6A1B4D] flex items-center justify-between gap-2">
+                <span>
+                  🔒 <strong>Protección anti-apropiación activa:</strong> Solo cuentas autorizadas
+                  en <code>public.admin_users</code> pueden ingresar.
+                </span>
                 <button
                   type="button"
-                  onClick={() => {
-                    setAuthMode("login");
-                    setAuthError("");
-                  }}
-                  className={`py-2 rounded-xl transition ${
-                    authMode === "login"
-                      ? "bg-[#D81B60] text-white shadow-sm"
-                      : "text-[#6A1B4D]"
-                  }`}
+                  onClick={() => setShowSetupGuide(!showSetupGuide)}
+                  className="text-[#D81B60] font-bold underline shrink-0"
                 >
-                  Iniciar Sesión
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthMode("register_owner");
-                    setAuthError("");
-                  }}
-                  className={`py-2 rounded-xl transition ${
-                    authMode === "register_owner"
-                      ? "bg-[#D81B60] text-white shadow-sm"
-                      : "text-[#6A1B4D]"
-                  }`}
-                >
-                  Activar Cuenta Propietaria
+                  {showSetupGuide ? "Ocultar guía" : "Guía propietaria"}
                 </button>
               </div>
+
+              {showSetupGuide && (
+                <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-[11px] text-amber-950 space-y-1.5">
+                  <p className="font-bold">¿Cómo autorizar la cuenta de la propietaria?</p>
+                  <p>
+                    1. Crea el usuario en{" "}
+                    <strong>Supabase Dashboard → Authentication → Users → Add user</strong>.
+                  </p>
+                  <p>
+                    2. En el <strong>SQL Editor</strong> de Supabase ejecuta:{" "}
+                    <code>SELECT public.authorize_admin_by_email(&apos;correo@ejemplo.com&apos;);</code>
+                  </p>
+                </div>
+              )}
 
               <form onSubmit={handleSupabaseAuth} className="space-y-4">
                 <div>
@@ -779,9 +752,7 @@ export default function AdminPage() {
                     type="password"
                     required
                     minLength={6}
-                    autoComplete={
-                      authMode === "login" ? "current-password" : "new-password"
-                    }
+                    autoComplete="current-password"
                     value={passwordInput}
                     onChange={(e) => setPasswordInput(e.target.value)}
                     placeholder="Mínimo 6 caracteres..."
@@ -795,23 +766,13 @@ export default function AdminPage() {
                   </p>
                 )}
 
-                {authInfoMessage && (
-                  <p className="text-xs font-bold text-emerald-800 bg-emerald-50 p-3 rounded-xl border border-emerald-200">
-                    {authInfoMessage}
-                  </p>
-                )}
-
                 <button
                   type="submit"
                   disabled={authSubmitting}
                   className="w-full py-3 rounded-full bg-gradient-to-r from-[#E91E63] to-[#C2185B] text-white text-sm font-bold shadow-md hover:brightness-105 transition disabled:opacity-60 flex items-center justify-center gap-2"
                 >
                   {authSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                  <span>
-                    {authMode === "login"
-                      ? "Ingresar al Panel Administrativo"
-                      : "Registrar Cuenta Propietaria"}
-                  </span>
+                  <span>Ingresar al Panel Administrativo</span>
                 </button>
               </form>
             </>

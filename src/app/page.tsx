@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronRight,
@@ -9,6 +10,7 @@ import {
   Flame,
   AlertCircle,
   CheckCircle2,
+  ShoppingBag,
 } from "lucide-react";
 import Header from "@/components/Header";
 import HeroBanner from "@/components/HeroBanner";
@@ -29,7 +31,6 @@ export default function HomePage() {
     products,
     categories,
     searchQuery,
-    setSearchQuery,
     selectedCategory,
     setSelectedCategory,
     sortBy,
@@ -39,7 +40,7 @@ export default function HomePage() {
     celebrationActive,
   } = useStore();
 
-  // Filtrado y ordenamiento del catálogo
+  // Filtrado y ordenamiento del catálogo en portada
   const filteredProducts = useMemo(() => {
     const activeList = products.filter((p) => p.active);
 
@@ -83,7 +84,7 @@ export default function HomePage() {
 
   const selectedCategoryName =
     selectedCategory === "all"
-      ? "Catálogo de Productos"
+      ? "Productos Destacados"
       : categories.find((c) => c.slug === selectedCategory)?.name || "Catálogo";
 
   return (
@@ -132,7 +133,7 @@ export default function HomePage() {
         {/* 3. Categorías Prioritarias Animadas (Peluches, Juguetes, Regalos, Disfraces, Fiestas, Accesorios) */}
         <CategoryGrid />
 
-        {/* 4. Sección Productos Destacados y Catálogo Filtrable */}
+        {/* 4. Sección Productos Destacados y Acceso al Catálogo Completo */}
         <motion.section
           id="catalogo-principal"
           aria-labelledby="titulo-destacados"
@@ -142,7 +143,7 @@ export default function HomePage() {
           transition={{ duration: 0.4, ease: "easeOut" }}
           className="max-w-[1320px] mx-auto px-4 sm:px-6 pt-6 pb-8"
         >
-          {/* Título en Poppins con detalles dorados y enlace Ver todo el catálogo */}
+          {/* Título en Poppins con detalles dorados y enlace real a /catalogo */}
           <div className="relative flex flex-col sm:flex-row items-center justify-between gap-3 mb-5">
             <div className="hidden lg:block w-44" />
 
@@ -155,27 +156,24 @@ export default function HomePage() {
               }
             />
 
-            <motion.button
-              type="button"
-              whileHover={{ x: 3 }}
-              onClick={() => {
-                setSelectedCategory("all");
-                setSearchQuery("");
-              }}
+            <Link
+              href="/catalogo"
+              onClick={() => setSelectedCategory("all")}
               className="inline-flex items-center gap-1 text-xs sm:text-sm font-bold text-[#6A1B4D] hover:text-[#D81B60] transition"
             >
               <span>Ver todo el catálogo</span>
               <ChevronRight className="w-4 h-4 text-[#D81B60]" />
-            </motion.button>
+            </Link>
           </div>
 
-          {/* Barra de Filtros, Ordenamiento y Aviso de Catálogo de Demostración */}
+          {/* Barra de Filtros, Ordenamiento y Aviso de Productos de Referencia */}
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3 bg-white/85 backdrop-blur-sm px-4 py-2.5 rounded-2xl border border-pink-200/80 shadow-sm">
             <div className="flex items-center gap-2 text-xs text-[#6A1B4D]">
               <AlertCircle className="w-4 h-4 text-[#D81B60] shrink-0" />
               <span>
-                <strong>Catálogo en preparación:</strong> Las fotografías individuales con su precio
-                oficial y existencia se agregarán directamente desde el panel administrativo.
+                <strong>Producto de referencia — Consulta disponibilidad:</strong> Los artículos de
+                referencia se consultan directamente por WhatsApp; los productos con precio y
+                existencia confirmados habilitan la compra en carrito.
               </span>
             </div>
 
@@ -198,7 +196,7 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Grid de 6 columnas en escritorio con transiciones fluidas al filtrar */}
+          {/* Grid de 6 columnas en escritorio con transiciones fluidas */}
           <AnimatePresence mode="wait">
             {selectedCategory === "all" && !searchQuery && sortBy === "featured" ? (
               <motion.div
@@ -225,18 +223,15 @@ export default function HomePage() {
                   No encontramos productos que coincidan con tu búsqueda
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
-                  Intenta con otro término o restablece los filtros para ver todo el catálogo.
+                  Explora nuestro catálogo completo para ver todas las categorías.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedCategory("all");
-                    setSearchQuery("");
-                  }}
-                  className="mt-4 px-5 py-2 rounded-full bg-[#D81B60] text-white text-xs font-bold"
+                <Link
+                  href="/catalogo"
+                  onClick={() => setSelectedCategory("all")}
+                  className="mt-4 inline-block px-5 py-2 rounded-full bg-[#D81B60] text-white text-xs font-bold"
                 >
-                  Ver todos los productos
-                </button>
+                  Ir al catálogo completo
+                </Link>
               </motion.div>
             ) : (
               <motion.div
@@ -253,6 +248,19 @@ export default function HomePage() {
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* Botón central hacia /catalogo */}
+          <div className="mt-6 flex justify-center">
+            <Link
+              href="/catalogo"
+              onClick={() => setSelectedCategory("all")}
+              className="btn-shimmer inline-flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-[#E91E63] via-[#D81B60] to-[#AD1457] text-white text-xs sm:text-sm font-bold shadow-boutique hover:shadow-boutiqueHover transition"
+            >
+              <ShoppingBag className="w-4 h-4" />
+              <span>Explorar catálogo completo de productos</span>
+              <ChevronRight className="w-4 h-4" />
+            </Link>
+          </div>
         </motion.section>
 
         {/* 5. Sección de Sorpresas y Artículos de Temporada */}
@@ -284,9 +292,12 @@ export default function HomePage() {
                   </p>
                 </div>
               </div>
-              <span className="text-xs font-bold text-[#D81B60] bg-pink-100/80 px-3.5 py-1.5 rounded-full self-start sm:self-center border border-pink-200">
-                🎁 Consulta existencias por WhatsApp
-              </span>
+              <Link
+                href="/catalogo"
+                className="text-xs font-bold text-[#D81B60] hover:bg-pink-200/70 bg-pink-100/80 px-3.5 py-1.5 rounded-full self-start sm:self-center border border-pink-200 transition"
+              >
+                🎁 Ver catálogo completo →
+              </Link>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -297,10 +308,10 @@ export default function HomePage() {
           </div>
         </motion.section>
 
-        {/* 6. Galería Conoce nuestra tienda (en sustitución del apartado de personalización) */}
+        {/* 6. Galería Conoce nuestra tienda */}
         <StoreGallerySection />
 
-        {/* 7. Información de Contacto y Entrega */}
+        {/* 7. Sección Visítanos y Contacto Oficial con Google Maps */}
         <ContactSection />
       </main>
 

@@ -2,6 +2,8 @@ import { Category, Product, StoreBanner, StoreGalleryPhoto } from "@/types/store
 
 export const BUSINESS_INFO = {
   name: "Regalos, Disfraces y Más — Los Ángeles",
+  mapsPlaceName: "Tienda de Regalos, Disfraces Los Angeles",
+  mapsUrl: "https://maps.app.goo.gl/emr5dX3coahaxH6D7",
   shortName: "Los Ángeles",
   slogan: "Regalos increíbles para cada ocasión",
   subSlogan:
@@ -13,9 +15,10 @@ export const BUSINESS_INFO = {
   whatsappFormatted: "+52 56 3547 8874",
   country: "México",
   currency: "MXN",
-  schedule: "Lunes a Sábado: 10:00 am – 8:00 pm | Domingos: 11:00 am – 5:00 pm",
+  scheduleNotice:
+    "Consulta disponibilidad y horarios de atención vigentes directamente por WhatsApp o en nuestra ubicación oficial de Google Maps.",
   deliveryNotice:
-    "Visítanos en tienda para elegir tus regalos o consulta disponibilidad y entrega local directamente por WhatsApp.",
+    "Visítanos en Tienda de Regalos, Disfraces Los Angeles o consulta disponibilidad y entrega local directamente por WhatsApp.",
 };
 
 export const INITIAL_CATEGORIES: Category[] = [
@@ -129,7 +132,7 @@ export const INITIAL_BANNERS: StoreBanner[] = [
     subtitle:
       "Descubre peluches, juguetes, disfraces y muchas sorpresas para toda la familia.",
     ctaText: "Explora nuestro catálogo",
-    ctaTarget: "#catalogo-principal",
+    ctaTarget: "/catalogo",
     imageUrl: "/images/hero-gifts.jpg",
     active: true,
     order: 1,
@@ -142,7 +145,7 @@ export const INITIAL_BANNERS: StoreBanner[] = [
     subtitle:
       "Encuentra peluches, juguetes, disfraces, regalos, artículos para fiestas y muchas sorpresas más.",
     ctaText: "Conoce nuestra tienda",
-    ctaTarget: "#nuestra-tienda",
+    ctaTarget: "/#nuestra-tienda",
     imageUrl: "/images/hero-gifts.jpg",
     active: true,
     order: 2,
@@ -155,7 +158,7 @@ export const INITIAL_BANNERS: StoreBanner[] = [
     subtitle:
       "Encuentra disfraces infantiles y familiares, globos y artículos para festejar a lo grande.",
     ctaText: "Explora nuestro catálogo",
-    ctaTarget: "#catalogo-principal",
+    ctaTarget: "/catalogo",
     imageUrl: "/images/hero-gifts.jpg",
     active: true,
     order: 3,

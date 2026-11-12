@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronLeft,
@@ -34,6 +35,10 @@ export default function HeroBanner() {
   };
 
   const slide = slides[activeSlide] || slides[0];
+  const resolvedCtaHref =
+    !slide.ctaTarget || slide.ctaTarget === "#catalogo-principal"
+      ? "/catalogo"
+      : slide.ctaTarget;
 
   return (
     <section aria-label="Promociones principales" className="w-full">
@@ -113,16 +118,14 @@ export default function HeroBanner() {
                   </p>
 
                   <div className="mt-5 flex flex-wrap items-center justify-center lg:justify-start gap-3">
-                    <motion.a
-                      href={slide.ctaTarget}
-                      whileHover={{ y: -2, scale: 1.02 }}
-                      whileTap={{ scale: 0.97 }}
-                      className="btn-shimmer inline-flex items-center gap-2.5 bg-gradient-to-r from-[#E91E63] via-[#D81B60] to-[#AD1457] text-white font-bold text-sm sm:text-base px-6 py-3 rounded-full shadow-boutique hover:shadow-boutiqueHover transition"
+                    <Link
+                      href={resolvedCtaHref}
+                      className="btn-shimmer inline-flex items-center gap-2.5 bg-gradient-to-r from-[#E91E63] via-[#D81B60] to-[#AD1457] text-white font-bold text-sm sm:text-base px-6 py-3 rounded-full shadow-boutique hover:shadow-boutiqueHover hover:-translate-y-0.5 transition"
                     >
                       <ShoppingCart className="w-4 h-4" />
                       <span>{slide.ctaText}</span>
                       <ChevronRight className="w-4 h-4" />
-                    </motion.a>
+                    </Link>
                   </div>
                 </motion.div>
               </AnimatePresence>

@@ -33,46 +33,49 @@ AS $$
   );
 $$;
 
--- Políticas de admin_users: cada usuario autenticado puede consultar si su propio user_id es admin
+-- Políticas de admin_users: cada usuario autenticado únicamente puede consultar si su propio user_id es admin.
+-- No existen políticas INSERT/UPDATE/DELETE para 'anon' ni 'authenticated', evitando que visitantes se apropien del panel.
 DROP POLICY IF EXISTS "Admin consulta lista de administradores" ON public.admin_users;
 CREATE POLICY "Admin consulta lista de administradores"
   ON public.admin_users FOR SELECT
   TO authenticated
   USING (user_id = auth.uid() OR public.is_admin());
 
--- Función segura para registrar a la propietaria como primera administradora si la tabla está vacía
-CREATE OR REPLACE FUNCTION public.bootstrap_first_admin()
-RETURNS BOOLEAN
+-- Eliminar cualquier función abierta previa de auto-registro público
+DROP FUNCTION IF EXISTS public.bootstrap_first_admin();
+
+-- Función administrativa exclusiva para el SQL Editor de Supabase (roles postgres / service_role).
+-- Revoca ejecución a PUBLIC, anon y authenticated para que ningún visitante externo pueda invocara desde la web.
+CREATE OR REPLACE FUNCTION public.authorize_admin_by_email(p_email TEXT)
+RETURNS UUID
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_count INTEGER;
   v_uid UUID;
-  v_email TEXT;
 BEGIN
-  v_uid := auth.uid();
+  SELECT id INTO v_uid
+  FROM auth.users
+  WHERE lower(email) = lower(trim(p_email))
+  LIMIT 1;
+
   IF v_uid IS NULL THEN
-    RAISE EXCEPTION 'Autenticación requerida';
+    RAISE EXCEPTION 'Primero crea el usuario % en Supabase Dashboard -> Authentication -> Users', p_email;
   END IF;
 
-  IF EXISTS (SELECT 1 FROM public.admin_users WHERE user_id = v_uid) THEN
-    RETURN true;
-  END IF;
+  INSERT INTO public.admin_users (user_id, email, role)
+  VALUES (v_uid, lower(trim(p_email)), 'owner')
+  ON CONFLICT (user_id) DO UPDATE SET
+    email = EXCLUDED.email,
+    role = 'owner';
 
-  SELECT count(*) INTO v_count FROM public.admin_users;
-  IF v_count = 0 THEN
-    v_email := COALESCE(auth.jwt() ->> 'email', 'propietaria@losangeles.mx');
-    INSERT INTO public.admin_users (user_id, email, role)
-    VALUES (v_uid, v_email, 'owner')
-    ON CONFLICT (user_id) DO NOTHING;
-    RETURN true;
-  END IF;
-
-  RETURN false;
+  RETURN v_uid;
 END;
 $$;
+
+REVOKE ALL ON FUNCTION public.authorize_admin_by_email(TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.authorize_admin_by_email(TEXT) TO postgres, service_role;
 
 -- ----------------------------------------------------------------------------
 -- 2. TABLA DE CATEGORÍAS ADMINISTRABLES
@@ -305,9 +308,9 @@ ON CONFLICT (slug) DO NOTHING;
 
 INSERT INTO public.store_banners (id, badge, title_line1, title_line2, subtitle, cta_text, cta_target, image_url, active, display_order)
 VALUES
-  ('banner-1', 'Regalos, Disfraces y Más — Los Ángeles', 'Regalos increíbles', 'para cada ocasión 🎁', 'Descubre peluches, juguetes, disfraces y muchas sorpresas para toda la familia.', 'Explora nuestro catálogo', '#catalogo-principal', '/images/hero-gifts.jpg', true, 1),
-  ('banner-2', 'Variedad Lista para Obsequiar', 'Peluches, juguetes', 'y regalos en tienda', 'Encuentra peluches, juguetes, disfraces, regalos, artículos para fiestas y muchas sorpresas más.', 'Conoce nuestra tienda', '#nuestra-tienda', '/images/hero-gifts.jpg', true, 2),
-  ('banner-3', 'Alegría para Fiestas y Eventos', 'Disfraces y artículos', 'para tus celebraciones', 'Encuentra disfraces infantiles y familiares, globos y artículos para festejar a lo grande.', 'Explora nuestro catálogo', '#catalogo-principal', '/images/hero-gifts.jpg', true, 3)
+  ('banner-1', 'Regalos, Disfraces y Más — Los Ángeles', 'Regalos increíbles', 'para cada ocasión 🎁', 'Descubre peluches, juguetes, disfraces y muchas sorpresas para toda la familia.', 'Explora nuestro catálogo', '/catalogo', '/images/hero-gifts.jpg', true, 1),
+  ('banner-2', 'Variedad Lista para Obsequiar', 'Peluches, juguetes', 'y regalos en tienda', 'Encuentra peluches, juguetes, disfraces, regalos, artículos para fiestas y muchas sorpresas más.', 'Conoce nuestra tienda', '/#nuestra-tienda', '/images/hero-gifts.jpg', true, 2),
+  ('banner-3', 'Alegría para Fiestas y Eventos', 'Disfraces y artículos', 'para tus celebraciones', 'Encuentra disfraces infantiles y familiares, globos y artículos para festejar a lo grande.', 'Explora nuestro catálogo', '/catalogo', '/images/hero-gifts.jpg', true, 3)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO public.store_gallery (id, title, caption, image_url, display_order)

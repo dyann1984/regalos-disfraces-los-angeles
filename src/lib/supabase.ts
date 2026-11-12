@@ -96,8 +96,8 @@ export async function uploadImageToSupabaseStorage(
 }
 
 /**
- * Verifica que el usuario autenticado tenga permisos de administrador en public.admin_users.
- * Si la tabla admin_users está vacía, registra automáticamente al primer usuario propietario mediante bootstrap_first_admin().
+ * Verifica estrictamente que el usuario autenticado figure como administrador autorizado en public.admin_users.
+ * No permite auto-registro público desde el navegador para evitar que visitantes se apropien del panel /admin.
  */
 export async function verifyOrBootstrapAdmin(): Promise<boolean> {
   if (!supabase) return false;
@@ -106,21 +106,17 @@ export async function verifyOrBootstrapAdmin(): Promise<boolean> {
   } = await supabase.auth.getUser();
   if (!user) return false;
 
-  const { data: existingAdmin } = await supabase
+  const { data: existingAdmin, error } = await supabase
     .from("admin_users")
     .select("user_id")
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (existingAdmin?.user_id) {
-    return true;
-  }
-
-  const { data: bootstrapped, error } = await supabase.rpc("bootstrap_first_admin");
   if (error) {
     return false;
   }
-  return Boolean(bootstrapped);
+
+  return Boolean(existingAdmin?.user_id);
 }
 
 /**
@@ -296,7 +292,7 @@ export function mapRowToBanner(row: Record<string, unknown>): StoreBanner {
     titleLine2: String(row.title_line2),
     subtitle: String(row.subtitle),
     ctaText: String(row.cta_text || "Explora nuestro catálogo"),
-    ctaTarget: String(row.cta_target || "#catalogo-principal"),
+    ctaTarget: String(row.cta_target || "/catalogo"),
     imageUrl: String(row.image_url || "/images/hero-gifts.jpg"),
     active: row.active !== false,
     order: Number(row.display_order ?? 1),
