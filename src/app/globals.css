@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-poppins: "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+  font-family: var(--font-poppins);
+}
+
+body {
+  background: linear-gradient(180deg, #fdf2f7 0%, #ffffff 35%, #fdf2f7 100%);
+  color: #2d1222;
+  font-family: var(--font-poppins);
+  font-style: normal;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Asegurar que ningún elemento de interfaz utilice cursivas */
+h1, h2, h3, h4, h5, h6, p, span, a, button, input, select, textarea, label {
+  font-style: normal;
+}
+
+/* Efecto de brillo elegante en botones principales al interactuar (transform + opacity) */
+.btn-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-shimmer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 45%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.38) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transform: translateX(-160%) skewX(-20deg);
+  transition: transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+
+.btn-shimmer:hover::after,
+.btn-shimmer:focus-visible::after {
+  transform: translateX(320%) skewX(-20deg);
+}
+
+/* Destellos dorados discretos con transform y opacity */
+@keyframes subtleTwinkle {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.08);
+  }
+}
+
+.animate-twinkle {
+  animation: subtleTwinkle 3.6s ease-in-out infinite;
+}
+
+.animate-twinkle-delayed {
+  animation: subtleTwinkle 4.2s ease-in-out 1.5s infinite;
+}
+
+/* Respeto estricto a prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
