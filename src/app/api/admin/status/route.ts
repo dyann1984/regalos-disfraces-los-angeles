@@ -12,6 +12,14 @@ export async function GET() {
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || "";
   const openaiKey = process.env.OPENAI_API_KEY || "";
 
+  const cloudinaryCloudName =
+    process.env.CLOUDINARY_CLOUD_NAME || process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || "";
+  const cloudinaryApiKey = process.env.CLOUDINARY_API_KEY || "";
+  const cloudinaryApiSecret = process.env.CLOUDINARY_API_SECRET || "";
+  const cloudinaryConfigured = Boolean(
+    cloudinaryCloudName && cloudinaryApiKey && cloudinaryApiSecret
+  );
+
   const firebaseConfigured = Boolean(
     firebaseApiKey &&
       firebaseProjectId &&
@@ -45,10 +53,14 @@ export async function GET() {
   if (!aiProvider) {
     missingVariables.push("GEMINI_API_KEY");
   }
+  if (!cloudinaryCloudName) missingVariables.push("CLOUDINARY_CLOUD_NAME");
+  if (!cloudinaryApiKey) missingVariables.push("CLOUDINARY_API_KEY");
+  if (!cloudinaryApiSecret) missingVariables.push("CLOUDINARY_API_SECRET");
 
   return NextResponse.json({
     firebaseConfigured,
     firebaseStorageConfigured,
+    cloudinaryConfigured,
     supabaseConfigured,
     aiConfigured: Boolean(aiProvider),
     aiProvider,

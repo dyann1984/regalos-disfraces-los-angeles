@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { verifyFirebaseAdminOnServer } from "@/lib/firebaseServerAuth";
 import { AIProductAnalysisResponse, CategorySlug } from "@/types/store";
 
 export const dynamic = "force-dynamic";
@@ -33,70 +34,6 @@ function checkRateLimit(identifier: string): { allowed: boolean; retryAfterSec?:
   prev.push(now);
   requestLog.set(identifier, prev);
   return { allowed: true };
-}
-
-/**
- * Verifica el ID Token de Firebase Auth en el servidor y comprueba que el usuario
- * esté autorizado como administrador en Cloud Firestore (`admin_users/{uid}` o `admin_users/{email}`)
- * o en `NEXT_PUBLIC_ADMIN_ALLOWED_EMAILS`.
- */
-async function verifyFirebaseAdminOnServer(
-  idToken: string,
-  firebaseApiKey: string,
-  firebaseProjectId: string
-): Promise<{ uid: string; email: string } | null> {
-  const lookupRes = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(
-      firebaseApiKey
-    )}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ idToken }),
-    }
-  );
-
-  if (!lookupRes.ok) return null;
-  const lookupData = await lookupRes.json();
-  const account = lookupData?.users?.[0];
-  if (!account?.localId) return null;
-
-  const uid = String(account.localId);
-  const email = String(account.email || "").trim().toLowerCase();
-
-  const allowedEmails = (process.env.NEXT_PUBLIC_ADMIN_ALLOWED_EMAILS || "")
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-
-  if (allowedEmails.length > 0 && (!email || !allowedEmails.includes(email))) {
-    return null;
-  }
-
-  // Verificar documento en Cloud Firestore (usando el ID token del usuario para respetar firestore.rules)
-  const checkDoc = async (docId: string) => {
-    const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
-      firebaseProjectId
-    )}/databases/(default)/documents/admin_users/${encodeURIComponent(docId)}`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${idToken}` },
-    });
-    return res.ok;
-  };
-
-  const isUidAdmin = await checkDoc(uid);
-  if (isUidAdmin) return { uid, email };
-
-  if (email) {
-    const isEmailAdmin = await checkDoc(email);
-    if (isEmailAdmin) return { uid, email };
-  }
-
-  if (allowedEmails.length > 0 && email && allowedEmails.includes(email)) {
-    return { uid, email };
-  }
-
-  return null;
 }
 
 const SYSTEM_INSTRUCTION = `Eres un asistente experto en catalogación visual de comercio electrónico para la tienda mexicana "Regalos, Disfraces y Más — Los Ángeles".
@@ -233,6 +170,15 @@ export async function POST(req: NextRequest) {
       }
 
       userIdentifier = user.id;
+    } else {
+      return NextResponse.json(
+        {
+          error:
+            "Autenticación administrativa no configurada en el servidor. Configura Firebase Authentication antes de usar la IA.",
+          code: "AUTH_NOT_CONFIGURED",
+        },
+        { status: 503 }
+      );
     }
 
     // 2. Verificar claves de API de IA en el servidor (Google Gemini / OpenAI)

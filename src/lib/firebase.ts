@@ -55,7 +55,6 @@ import {
   STORAGE_BUCKET,
   validateImageFile,
 } from "@/lib/supabase";
-import { compressImageToSparkWebPDataUrl } from "@/lib/imageUtils";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "",
@@ -205,13 +204,11 @@ export async function signOutFirebaseAdmin(): Promise<void> {
 }
 
 /**
- * Sube una fotografía tomada desde el celular o galería:
- * 1. Si Cloud Storage (`NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`) está activo y el modo no es `firestore_inline`,
- *    sube al bucket bajo `store-media/{folder}/{filename}` y devuelve la URL pública.
- * 2. Si se configuró Cloudinary gratuito (`NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` + `NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET`),
- *    sube a Cloudinary sin requerir tarjeta en Firebase.
- * 3. Si el proyecto está en Plan Spark sin bucket de Storage (`NEXT_PUBLIC_STORAGE_MODE=firestore_inline` o sin bucket),
- *    comprime la imagen a WebP ultra-ligero (~45–65 KB) para guardarla directamente en Cloud Firestore sin costo.
+ * Sube una fotografía tomada desde el celular o galería usando firma segura en servidor:
+ * 1. Prioriza Cloudinary mediante firma SHA-1 en `/api/admin/cloudinary/sign`
+ *    (exige Firebase ID Token + autorización en `admin_users`, sin presets públicos).
+ * 2. Como respaldo explícito (`NEXT_PUBLIC_STORAGE_MODE=firebase_storage`), usa Firebase Storage.
+ * No almacena imágenes base64 (`firestore_inline`) en documentos nuevos de producción.
  */
 export async function uploadImageToFirebase(
   file: File,
@@ -222,41 +219,71 @@ export async function uploadImageToFirebase(
     throw new Error(validationError);
   }
 
-  const storageMode = (process.env.NEXT_PUBLIC_STORAGE_MODE || "auto").toLowerCase();
-  const cloudinaryCloud = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || "";
-  const cloudinaryPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || "";
+  const storageMode = (process.env.NEXT_PUBLIC_STORAGE_MODE || "cloudinary").toLowerCase();
 
-  // Opción A: Cloudinary gratuito (25 GB sin tarjeta) si está configurado
-  if (
-    (storageMode === "cloudinary" || (!firebaseStorage && cloudinaryCloud && cloudinaryPreset)) &&
-    cloudinaryCloud &&
-    cloudinaryPreset
-  ) {
+  if (storageMode !== "firebase_storage") {
+    const idToken = await firebaseAuth?.currentUser?.getIdToken();
+    if (!idToken) {
+      throw new Error("Debes iniciar sesión como administradora para subir fotografías.");
+    }
+
+    const signRes = await fetch("/api/admin/cloudinary/sign", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({ folder }),
+    });
+
+    const signData = await signRes.json().catch(() => ({}));
+    if (!signRes.ok) {
+      throw new Error(
+        signData?.error || "No se pudo autorizar la subida segura a Cloudinary."
+      );
+    }
+
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("upload_preset", cloudinaryPreset);
-    formData.append("folder", `${STORAGE_BUCKET}/${folder}`);
+    formData.append("api_key", String(signData.apiKey));
+    formData.append("timestamp", String(signData.timestamp));
+    formData.append("folder", String(signData.folder));
+    formData.append("signature", String(signData.signature));
 
-    const res = await fetch(
-      `https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudinaryCloud)}/image/upload`,
+    const uploadRes = await fetch(
+      `https://api.cloudinary.com/v1_1/${encodeURIComponent(
+        String(signData.cloudName)
+      )}/image/upload`,
       {
         method: "POST",
         body: formData,
       }
     );
-    if (!res.ok) {
-      throw new Error("No se pudo subir la imagen a Cloudinary.");
+
+    if (!uploadRes.ok) {
+      const errJson = await uploadRes.json().catch(() => ({}));
+      throw new Error(
+        errJson?.error?.message || "No se pudo subir la imagen a Cloudinary."
+      );
     }
-    const data = await res.json();
-    return String(data.secure_url);
+
+    const uploaded = await uploadRes.json();
+    const secureUrl = String(uploaded.secure_url || "");
+    if (!secureUrl) {
+      throw new Error("Cloudinary no devolvió una URL válida.");
+    }
+
+    // Optimización automática de entrega (formato y calidad adaptativos)
+    return secureUrl.replace("/image/upload/", "/image/upload/f_auto,q_auto/");
   }
 
-  // Opción B: Modo WebP optimizado en Firestore (Plan Spark 100% gratuito sin tarjeta)
-  if (storageMode === "firestore_inline" || !firebaseStorage) {
-    return await compressImageToSparkWebPDataUrl(file);
+  // Respaldo explícito: Firebase Cloud Storage (`store-media/{folder}/...`)
+  if (!firebaseStorage) {
+    throw new Error(
+      "Firebase Cloud Storage no está habilitado. Configura Cloudinary en las variables de entorno del servidor."
+    );
   }
 
-  // Opción C: Firebase Cloud Storage (`store-media/{folder}/...`)
   const ext = file.name.split(".").pop()?.toLowerCase() || "webp";
   const safeBase = file.name
     .replace(/\.[^/.]+$/, "")
@@ -267,24 +294,33 @@ export async function uploadImageToFirebase(
     .toString(36)
     .slice(2, 7)}-${safeBase}.${ext}`;
 
-  try {
-    const storageRef = ref(firebaseStorage, filePath);
-    await uploadBytes(storageRef, file, {
-      contentType: file.type || "image/webp",
-      cacheControl: "public,max-age=31536000",
-    });
-    return await getDownloadURL(storageRef);
-  } catch (err) {
-    // Si el bucket de Storage aún no está aprovisionado en el plan gratuito Spark, usar respaldo WebP compacto
-    if (storageMode === "auto") {
-      return await compressImageToSparkWebPDataUrl(file);
-    }
-    throw new Error(
-      err instanceof Error
-        ? `Error al subir imagen a Firebase Storage: ${err.message}`
-        : "Error al subir imagen a Firebase Storage."
-    );
+  const storageRef = ref(firebaseStorage, filePath);
+  await uploadBytes(storageRef, file, {
+    contentType: file.type || "image/webp",
+    cacheControl: "public,max-age=31536000",
+  });
+  return await getDownloadURL(storageRef);
+}
+
+/**
+ * Elimina de Cloudinary una fotografía perteneciente a la carpeta de la tienda,
+ * verificando en servidor el Firebase ID Token y el rol de administradora.
+ */
+export async function deleteImageFromCloudinary(imageUrl: string): Promise<void> {
+  if (!imageUrl || !imageUrl.includes("res.cloudinary.com")) {
+    return;
   }
+  const idToken = await firebaseAuth?.currentUser?.getIdToken();
+  if (!idToken) return;
+
+  await fetch("/api/admin/cloudinary/delete", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({ imageUrl }),
+  });
 }
 
 /**

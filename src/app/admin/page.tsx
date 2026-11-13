@@ -38,6 +38,7 @@ import {
 } from "@/types/store";
 import { onAuthStateChanged } from "firebase/auth";
 import {
+  deleteImageFromCloudinary,
   ensureInitialFirebaseCatalogSeeded,
   firebaseAuth,
   isFirebaseConfigured,
@@ -63,6 +64,7 @@ import {
 interface ServerStatus {
   firebaseConfigured?: boolean;
   firebaseStorageConfigured?: boolean;
+  cloudinaryConfigured?: boolean;
   supabaseConfigured: boolean;
   aiConfigured: boolean;
   aiProvider: "gemini" | "openai" | null;
@@ -401,29 +403,45 @@ export default function AdminPage() {
 
   const handleRemoveProductPhoto = (indexToRemove: number) => {
     if (!editingProduct) return;
-    const updated = (editingProduct.images || []).filter((_, idx) => idx !== indexToRemove);
+    const currentImages = editingProduct.images || [];
+    const removedUrl = currentImages[indexToRemove];
+    const updated = currentImages.filter((_, idx) => idx !== indexToRemove);
     setEditingProduct({ ...editingProduct, images: updated });
+    if (removedUrl && isFirebaseConfigured) {
+      deleteImageFromCloudinary(removedUrl).catch(() => {});
+    }
   };
 
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProduct?.name?.trim()) return;
 
+    const numericPrice =
+      editingProduct.price !== undefined &&
+      editingProduct.price !== null &&
+      String(editingProduct.price) !== ""
+        ? Number(editingProduct.price)
+        : null;
+
+    const numericStock =
+      editingProduct.stock !== undefined &&
+      editingProduct.stock !== null &&
+      String(editingProduct.stock) !== ""
+        ? Number(editingProduct.stock)
+        : null;
+
+    if (numericPrice === null || Number.isNaN(numericPrice) || numericPrice < 0) {
+      showToast("Confirma manualmente el precio real en MXN antes de guardar.", "error");
+      return;
+    }
+
+    if (numericStock === null || Number.isNaN(numericStock) || numericStock < 0) {
+      showToast("Confirma manualmente las existencias disponibles antes de guardar.", "error");
+      return;
+    }
+
     setSavingProduct(true);
     try {
-      const numericPrice =
-        editingProduct.price !== undefined &&
-        editingProduct.price !== null &&
-        String(editingProduct.price) !== ""
-          ? Number(editingProduct.price)
-          : null;
-
-      const numericStock =
-        editingProduct.stock !== undefined &&
-        editingProduct.stock !== null &&
-        String(editingProduct.stock) !== ""
-          ? Number(editingProduct.stock)
-          : null;
 
       const cleanImages = (editingProduct.images || []).filter(Boolean).slice(0, 5);
 
@@ -1174,12 +1192,13 @@ export default function AdminPage() {
 
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">
-                      Precio en MXN
+                      Precio en MXN *
                     </label>
                     <input
                       type="number"
                       step="0.01"
                       min="0"
+                      required
                       value={editingProduct.price ?? ""}
                       onChange={(e) =>
                         setEditingProduct({
@@ -1214,11 +1233,12 @@ export default function AdminPage() {
 
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">
-                      Existencias disponibles (unidades)
+                      Existencias disponibles (unidades) *
                     </label>
                     <input
                       type="number"
                       min="0"
+                      required
                       value={editingProduct.stock ?? ""}
                       onChange={(e) =>
                         setEditingProduct({
@@ -1882,10 +1902,16 @@ export default function AdminPage() {
                 {isFirebaseConfigured ? "Conectado y persistente." : "Pendiente de configuración."}
               </p>
               <p className="text-xs text-gray-700">
+                • <strong>Cloudinary (Fotografías de productos):</strong>{" "}
+                {serverStatus?.cloudinaryConfigured
+                  ? "Operativo con firma segura en servidor."
+                  : "Pendiente de configuración en variables de servidor."}
+              </p>
+              <p className="text-xs text-gray-700">
                 • <strong>Asistente IA Multimodal Gemini (Servidor):</strong>{" "}
                 {serverStatus?.aiConfigured
                   ? `Operativo (${serverStatus.aiProvider?.toUpperCase()})`
-                  : "Pendiente configurar GEMINI_API_KEY en el servidor."}
+                  : "Pendiente de configuración en variables de servidor."}
               </p>
               <p className="text-xs text-gray-700">
                 • <strong>Mercado Pago:</strong> Cobros reales desactivados preventivamente hasta
