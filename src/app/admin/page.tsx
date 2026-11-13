@@ -36,6 +36,17 @@ import {
   StoreBanner,
   StoreGalleryPhoto,
 } from "@/types/store";
+import { onAuthStateChanged } from "firebase/auth";
+import {
+  ensureInitialFirebaseCatalogSeeded,
+  firebaseAuth,
+  isFirebaseConfigured,
+  signInAdminWithEmail,
+  signInAdminWithGoogle,
+  signOutFirebaseAdmin,
+  uploadImageToFirebase,
+  verifyFirebaseAdmin,
+} from "@/lib/firebase";
 import {
   ensureInitialCatalogSeeded,
   isSupabaseConfigured,
@@ -50,6 +61,8 @@ import {
 } from "@/lib/imageUtils";
 
 interface ServerStatus {
+  firebaseConfigured?: boolean;
+  firebaseStorageConfigured?: boolean;
   supabaseConfigured: boolean;
   aiConfigured: boolean;
   aiProvider: "gemini" | "openai" | null;
@@ -73,8 +86,9 @@ export default function AdminPage() {
     showToast,
   } = useStore();
 
-  // Estado de autenticación real con Supabase Auth
-  const [authChecking, setAuthChecking] = useState(isSupabaseConfigured);
+  // Estado de autenticación real con Firebase Auth (o Supabase Auth como respaldo)
+  const isBackendAuthConfigured = isFirebaseConfigured || isSupabaseConfigured;
+  const [authChecking, setAuthChecking] = useState(isBackendAuthConfigured);
   const [adminEmail, setAdminEmail] = useState<string | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isAuthorizedAdmin, setIsAuthorizedAdmin] = useState(false);
@@ -132,16 +146,63 @@ export default function AdminPage() {
       .catch(() => {});
   }, [isAuthorizedAdmin]);
 
-  // Verificar sesión activa de Supabase Auth
+  // Verificar sesión activa de Firebase Authentication (prioritario) o Supabase Auth (respaldo)
   useEffect(() => {
-    if (!supabase || !isSupabaseConfigured) {
+    if (!isBackendAuthConfigured) {
       setAuthChecking(false);
       return;
     }
 
     let mounted = true;
 
-    async function checkCurrentSession() {
+    if (isFirebaseConfigured && firebaseAuth) {
+      const unsubscribe = onAuthStateChanged(firebaseAuth, async (user) => {
+        if (!mounted) return;
+        if (!user) {
+          setIsAuthorizedAdmin(false);
+          setAdminEmail(null);
+          setAccessToken(null);
+          setAuthChecking(false);
+          return;
+        }
+
+        try {
+          const isAdmin = await verifyFirebaseAdmin(user);
+          if (!mounted) return;
+          if (isAdmin) {
+            const idToken = await user.getIdToken();
+            setIsAuthorizedAdmin(true);
+            setAdminEmail(user.email || "Administradora");
+            setAccessToken(idToken);
+            await ensureInitialFirebaseCatalogSeeded();
+            await refreshStoreData(true);
+          } else {
+            setAuthError(
+              "Tu cuenta no cuenta con permisos de administración autorizados."
+            );
+            await signOutFirebaseAdmin();
+            setIsAuthorizedAdmin(false);
+            setAdminEmail(null);
+            setAccessToken(null);
+          }
+        } catch {
+          if (mounted) {
+            setIsAuthorizedAdmin(false);
+          }
+        } finally {
+          if (mounted) {
+            setAuthChecking(false);
+          }
+        }
+      });
+
+      return () => {
+        mounted = false;
+        unsubscribe();
+      };
+    }
+
+    async function checkCurrentSupabaseSession() {
       if (!supabase) return;
       try {
         const {
@@ -180,9 +241,9 @@ export default function AdminPage() {
       }
     }
 
-    checkCurrentSession();
+    checkCurrentSupabaseSession();
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: authListener } = supabase!.auth.onAuthStateChange(async (_event, session) => {
       if (!session?.user) {
         if (mounted) {
           setIsAuthorizedAdmin(false);
@@ -198,38 +259,51 @@ export default function AdminPage() {
       mounted = false;
       authListener.subscription.unsubscribe();
     };
-  }, [refreshStoreData]);
+  }, [isBackendAuthConfigured, refreshStoreData]);
 
-  const handleSupabaseAuth = async (e: React.FormEvent) => {
+  const handleAdminEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError("");
 
-    if (!supabase || !isSupabaseConfigured) {
+    if (!isBackendAuthConfigured) {
       setAuthError("Panel administrativo temporalmente no disponible.");
       return;
     }
 
     setAuthSubmitting(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: emailInput.trim(),
-        password: passwordInput,
-      });
-      if (error) throw error;
-
-      const ok = await verifyOrBootstrapAdmin();
-      if (!ok) {
-        await supabase.auth.signOut();
-        throw new Error(
-          "Acceso denegado: esta cuenta no tiene autorización administrativa."
-        );
+      if (isFirebaseConfigured) {
+        const user = await signInAdminWithEmail(emailInput.trim(), passwordInput);
+        const token = await user.getIdToken();
+        setIsAuthorizedAdmin(true);
+        setAdminEmail(user.email || emailInput.trim());
+        setAccessToken(token);
+        await ensureInitialFirebaseCatalogSeeded();
+        await refreshStoreData(true);
+        return;
       }
 
-      setIsAuthorizedAdmin(true);
-      setAdminEmail(data.user?.email || emailInput.trim());
-      setAccessToken(data.session?.access_token || null);
-      await ensureInitialCatalogSeeded();
-      await refreshStoreData(true);
+      if (supabase && isSupabaseConfigured) {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: emailInput.trim(),
+          password: passwordInput,
+        });
+        if (error) throw error;
+
+        const ok = await verifyOrBootstrapAdmin();
+        if (!ok) {
+          await supabase.auth.signOut();
+          throw new Error(
+            "Acceso denegado: esta cuenta no tiene autorización administrativa."
+          );
+        }
+
+        setIsAuthorizedAdmin(true);
+        setAdminEmail(data.user?.email || emailInput.trim());
+        setAccessToken(data.session?.access_token || null);
+        await ensureInitialCatalogSeeded();
+        await refreshStoreData(true);
+      }
     } catch (err) {
       setAuthError(
         err instanceof Error ? err.message : "No fue posible iniciar sesión."
@@ -239,13 +313,47 @@ export default function AdminPage() {
     }
   };
 
+  const handleGoogleAdminSignIn = async () => {
+    setAuthError("");
+    setAuthSubmitting(true);
+    try {
+      const user = await signInAdminWithGoogle();
+      const token = await user.getIdToken();
+      setIsAuthorizedAdmin(true);
+      setAdminEmail(user.email || "Administradora");
+      setAccessToken(token);
+      await ensureInitialFirebaseCatalogSeeded();
+      await refreshStoreData(true);
+    } catch (err) {
+      setAuthError(
+        err instanceof Error ? err.message : "No fue posible iniciar sesión con Google."
+      );
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
   const handleSignOut = async () => {
+    if (isFirebaseConfigured) {
+      await signOutFirebaseAdmin();
+    }
     if (supabase) {
       await supabase.auth.signOut();
     }
     setIsAuthorizedAdmin(false);
     setAdminEmail(null);
     setAccessToken(null);
+  };
+
+  const uploadAdminImageFile = async (
+    file: File,
+    folder: "products" | "gallery" | "categories" | "banners"
+  ): Promise<string> => {
+    const optimized = await optimizeFileForStorage(file);
+    if (isFirebaseConfigured) {
+      return await uploadImageToFirebase(optimized, folder);
+    }
+    return await uploadImageToSupabaseStorage(optimized, folder);
   };
 
   // ============================================================================
@@ -269,8 +377,7 @@ export default function AdminPage() {
     try {
       const uploadedUrls: string[] = [];
       for (const rawFile of selectedFiles) {
-        const optimized = await optimizeFileForStorage(rawFile);
-        const publicUrl = await uploadImageToSupabaseStorage(optimized, "products");
+        const publicUrl = await uploadAdminImageFile(rawFile, "products");
         uploadedUrls.push(publicUrl);
       }
       setEditingProduct((prev) => ({
@@ -278,7 +385,7 @@ export default function AdminPage() {
         images: [...(prev?.images || []), ...uploadedUrls].slice(0, MAX_PRODUCT_IMAGES),
       }));
       showToast(
-        `${uploadedUrls.length} fotografía(s) subida(s) a Supabase Storage correctamente.`,
+        `${uploadedUrls.length} fotografía(s) cargada(s) correctamente.`,
         "success"
       );
     } catch (err) {
@@ -492,8 +599,7 @@ export default function AdminPage() {
     try {
       const uploadedUrls: string[] = [];
       for (const rawFile of aiFiles.slice(0, MAX_PRODUCT_IMAGES)) {
-        const optimized = await optimizeFileForStorage(rawFile);
-        const publicUrl = await uploadImageToSupabaseStorage(optimized, "products");
+        const publicUrl = await uploadAdminImageFile(rawFile, "products");
         uploadedUrls.push(publicUrl);
       }
 
@@ -548,10 +654,9 @@ export default function AdminPage() {
     if (!file) return;
     setUploadingPhotos(true);
     try {
-      const optimized = await optimizeFileForStorage(file);
-      const url = await uploadImageToSupabaseStorage(optimized, folder);
+      const url = await uploadAdminImageFile(file, folder);
       onUploaded(url);
-      showToast("Fotografía subida a Supabase Storage.", "success");
+      showToast("Fotografía cargada correctamente.", "success");
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : "Error al subir la fotografía.",
@@ -645,7 +750,7 @@ export default function AdminPage() {
             </div>
           </div>
 
-          {!isSupabaseConfigured ? (
+          {!isBackendAuthConfigured ? (
             <div className="space-y-4">
               <div className="w-11 h-11 rounded-2xl bg-pink-50 border border-pink-200 text-[#D81B60] flex items-center justify-center mx-auto">
                 <Lock className="w-5 h-5" />
@@ -677,7 +782,18 @@ export default function AdminPage() {
                 </p>
               </div>
 
-              <form onSubmit={handleSupabaseAuth} className="space-y-4">
+              {isFirebaseConfigured && (
+                <button
+                  type="button"
+                  disabled={authSubmitting}
+                  onClick={handleGoogleAdminSignIn}
+                  className="w-full py-2.5 px-4 rounded-full bg-white hover:bg-pink-50 text-[#6A1B4D] border border-pink-200 text-xs sm:text-sm font-bold shadow-sm transition flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  <span>Continuar con Google (Cuenta Propietaria)</span>
+                </button>
+              )}
+
+              <form onSubmit={handleAdminEmailAuth} className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-1">
                     Correo electrónico *
@@ -1731,20 +1847,21 @@ export default function AdminPage() {
             <div className="bg-white p-5 rounded-3xl border border-pink-200 space-y-2.5">
               <div className="flex items-center gap-2 text-[#D81B60] font-bold text-sm">
                 <CheckCircle2 className="w-5 h-5" />
-                <span>Políticas de Seguridad y RLS Activas</span>
+                <span>Políticas de Seguridad Activas</span>
               </div>
               <ul className="text-xs text-gray-700 space-y-1.5">
                 <li>
-                  • <strong>Supabase Auth:</strong> Autenticación real sin contraseñas fijas.
+                  • <strong>Firebase Authentication:</strong> Acceso exclusivo para la propietaria
+                  sin contraseñas fijas ni auto-registro público.
                 </li>
                 <li>
-                  • <strong>Row Level Security (RLS):</strong> Escritura en productos, categorías,
-                  banners, galería y estados de pedidos restringida mediante{" "}
-                  <code>public.is_admin()</code>.
+                  • <strong>Reglas de Seguridad (Firestore &amp; Storage):</strong> Escritura en
+                  productos, categorías, banners, galería y pedidos restringida mediante{" "}
+                  <code>isAdmin()</code> en <code>admin_users</code>.
                 </li>
                 <li>
-                  • <strong>Supabase Storage:</strong> Bucket <code>store-media</code> configurado
-                  para hasta 5 fotos por producto (JPG, PNG, WEBP, máx. 5 MB).
+                  • <strong>Almacenamiento de Fotografías:</strong> Hasta 5 fotos por producto
+                  optimizadas automáticamente desde la cámara del celular.
                 </li>
                 <li>
                   • <strong>Regla Comercial:</strong> Cero promesas de personalización de regalos.
@@ -1761,11 +1878,11 @@ export default function AdminPage() {
                 • <strong>WhatsApp (+52 56 3547 8874):</strong> Operativo.
               </p>
               <p className="text-xs text-gray-700">
-                • <strong>Supabase PostgreSQL & Storage:</strong>{" "}
-                {isSupabaseConfigured ? "Conectado y persistente." : "Pendiente de credenciales."}
+                • <strong>Firebase (Auth + Cloud Firestore):</strong>{" "}
+                {isFirebaseConfigured ? "Conectado y persistente." : "Pendiente de configuración."}
               </p>
               <p className="text-xs text-gray-700">
-                • <strong>Asistente IA Multimodal (Servidor):</strong>{" "}
+                • <strong>Asistente IA Multimodal Gemini (Servidor):</strong>{" "}
                 {serverStatus?.aiConfigured
                   ? `Operativo (${serverStatus.aiProvider?.toUpperCase()})`
                   : "Pendiente configurar GEMINI_API_KEY en el servidor."}

@@ -35,6 +35,70 @@ function checkRateLimit(identifier: string): { allowed: boolean; retryAfterSec?:
   return { allowed: true };
 }
 
+/**
+ * Verifica el ID Token de Firebase Auth en el servidor y comprueba que el usuario
+ * esté autorizado como administrador en Cloud Firestore (`admin_users/{uid}` o `admin_users/{email}`)
+ * o en `NEXT_PUBLIC_ADMIN_ALLOWED_EMAILS`.
+ */
+async function verifyFirebaseAdminOnServer(
+  idToken: string,
+  firebaseApiKey: string,
+  firebaseProjectId: string
+): Promise<{ uid: string; email: string } | null> {
+  const lookupRes = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(
+      firebaseApiKey
+    )}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken }),
+    }
+  );
+
+  if (!lookupRes.ok) return null;
+  const lookupData = await lookupRes.json();
+  const account = lookupData?.users?.[0];
+  if (!account?.localId) return null;
+
+  const uid = String(account.localId);
+  const email = String(account.email || "").trim().toLowerCase();
+
+  const allowedEmails = (process.env.NEXT_PUBLIC_ADMIN_ALLOWED_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (allowedEmails.length > 0 && (!email || !allowedEmails.includes(email))) {
+    return null;
+  }
+
+  // Verificar documento en Cloud Firestore (usando el ID token del usuario para respetar firestore.rules)
+  const checkDoc = async (docId: string) => {
+    const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
+      firebaseProjectId
+    )}/databases/(default)/documents/admin_users/${encodeURIComponent(docId)}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${idToken}` },
+    });
+    return res.ok;
+  };
+
+  const isUidAdmin = await checkDoc(uid);
+  if (isUidAdmin) return { uid, email };
+
+  if (email) {
+    const isEmailAdmin = await checkDoc(email);
+    if (isEmailAdmin) return { uid, email };
+  }
+
+  if (allowedEmails.length > 0 && email && allowedEmails.includes(email)) {
+    return { uid, email };
+  }
+
+  return null;
+}
+
 const SYSTEM_INSTRUCTION = `Eres un asistente experto en catalogación visual de comercio electrónico para la tienda mexicana "Regalos, Disfraces y Más — Los Ángeles".
 Analiza únicamente lo que se observa visualmente en la fotografía proporcionada por la administradora.
 
@@ -71,15 +135,56 @@ Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura exac
 
 export async function POST(req: NextRequest) {
   try {
-    // 1. Verificar autenticación de administradora mediante Supabase Auth
+    // 1. Verificar autenticación de administradora mediante Firebase Auth (o Supabase Auth como respaldo)
+    const firebaseApiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "";
+    const firebaseProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "";
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
     const authHeader = req.headers.get("authorization") || "";
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
 
     let userIdentifier = req.headers.get("x-forwarded-for") || "admin-local";
 
-    if (supabaseUrl && supabaseAnonKey) {
+    const isFirebaseActive = Boolean(
+      firebaseApiKey && firebaseProjectId && !firebaseProjectId.includes("tu-proyecto")
+    );
+    const isSupabaseActive = Boolean(
+      supabaseUrl &&
+        supabaseAnonKey &&
+        supabaseUrl.startsWith("https://") &&
+        !supabaseUrl.includes("tu-proyecto")
+    );
+
+    if (isFirebaseActive) {
+      if (!token) {
+        return NextResponse.json(
+          {
+            error: "No autorizado. Inicia sesión como administradora en /admin para usar la IA.",
+            code: "UNAUTHORIZED",
+          },
+          { status: 401 }
+        );
+      }
+
+      const verifiedAdmin = await verifyFirebaseAdminOnServer(
+        token,
+        firebaseApiKey,
+        firebaseProjectId
+      );
+
+      if (!verifiedAdmin) {
+        return NextResponse.json(
+          {
+            error: "Acceso denegado: tu cuenta no tiene permisos de administradora en Firebase.",
+            code: "FORBIDDEN",
+          },
+          { status: 403 }
+        );
+      }
+
+      userIdentifier = verifiedAdmin.uid;
+    } else if (isSupabaseActive) {
       if (!token) {
         return NextResponse.json(
           {
@@ -111,7 +216,6 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Verificar que pertenezca a admin_users
       const { data: adminRow } = await supabaseServer
         .from("admin_users")
         .select("user_id")
@@ -131,7 +235,7 @@ export async function POST(req: NextRequest) {
       userIdentifier = user.id;
     }
 
-    // 2. Verificar claves de API de IA en el servidor (sin simular respuestas si faltan)
+    // 2. Verificar claves de API de IA en el servidor (Google Gemini / OpenAI)
     const geminiKey =
       process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || "";
     const openaiKey = process.env.OPENAI_API_KEY || "";
@@ -140,7 +244,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "El servicio de Inteligencia Artificial requiere configurar la variable de entorno GEMINI_API_KEY (o OPENAI_API_KEY) en el servidor (.env.local / Vercel).",
+            "El servicio de Inteligencia Artificial requiere configurar la variable de entorno GEMINI_API_KEY en el servidor (.env.local / Vercel).",
           code: "AI_KEY_MISSING",
           missingKey: "GEMINI_API_KEY",
         },
@@ -199,7 +303,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 5. Llamada multimodal desde el servidor (Gemini o OpenAI Vision)
+    // 5. Llamada multimodal desde el servidor (Google Gemini 2.5 Flash o OpenAI Vision)
     let parsedResult: Omit<AIProductAnalysisResponse, "providerUsed"> | null = null;
     let providerUsed: "gemini" | "openai" = "gemini";
 
@@ -305,7 +409,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Normalizar categorías y limpiar cualquier término prohibido
     const normalizedItems = parsedResult.items.slice(0, 5).map((item, idx) => {
       const validCat: CategorySlug = VALID_CATEGORIES.includes(item.categorySlug)
         ? item.categorySlug

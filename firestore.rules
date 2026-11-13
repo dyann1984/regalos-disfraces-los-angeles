@@ -1,0 +1,85 @@
+rules_version = '2';
+
+// ============================================================================
+// REGLAS DE SEGURIDAD CLOUD FIRESTORE — REGALOS, DISFRACES Y MÁS "LOS ÁNGELES"
+// ============================================================================
+// - Lectura pública de catálogo activo (categorías, productos, banners y galería).
+// - Escritura de catálogo, inventario y estados de pedidos EXCLUSIVA para la
+//   administradora autorizada en la colección `admin_users`.
+// - Bloqueo total de auto-registro de administradores desde el cliente (`allow write: if false` en `admin_users`).
+// ============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Verifica si el usuario autenticado figura en `admin_users/{uid}` o `admin_users/{email}`
+    function isAdmin() {
+      return request.auth != null && (
+        exists(/databases/$(database)/documents/admin_users/$(request.auth.uid)) ||
+        (
+          request.auth.token.email != null &&
+          exists(/databases/$(database)/documents/admin_users/$(request.auth.token.email.lower()))
+        )
+      );
+    }
+
+    // 1. Colección de Administradores Autorizados
+    // La propietaria se da de alta únicamente desde Firebase Console -> Firestore Database.
+    // Ningún visitante externo puede escribir en esta colección desde la web.
+    match /admin_users/{adminId} {
+      allow get: if request.auth != null && (
+        request.auth.uid == adminId ||
+        (request.auth.token.email != null && request.auth.token.email.lower() == adminId) ||
+        isAdmin()
+      );
+      allow list: if isAdmin();
+      allow write: if false;
+    }
+
+    // 2. Categorías Oficiales (6 categorías prioritarias)
+    match /categories/{categoryId} {
+      allow read: if resource.data.active == true || isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // 3. Productos e Inventario (hasta 5 fotografías por producto)
+    match /products/{productId} {
+      allow read: if resource.data.active == true || isAdmin();
+      allow create, update: if isAdmin()
+        && (!('images' in request.resource.data) || request.resource.data.images.size() <= 5)
+        && (!('price' in request.resource.data) || request.resource.data.price == null || request.resource.data.price >= 0)
+        && (!('stock' in request.resource.data) || request.resource.data.stock == null || request.resource.data.stock >= 0);
+      allow delete: if isAdmin();
+    }
+
+    // 4. Galería "Conoce nuestra tienda"
+    match /store_gallery/{photoId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // 5. Banners Promocionales de Portada
+    match /store_banners/{bannerId} {
+      allow read: if resource.data.active == true || isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // 6. Pedidos de Clientes (creación pública para envío por WhatsApp; lectura y gestión solo Admin)
+    match /orders/{orderId} {
+      allow create: if request.resource.data.keys().hasAll([
+          'id',
+          'customer_name',
+          'customer_phone',
+          'delivery_method',
+          'items',
+          'total',
+          'status'
+        ])
+        && request.resource.data.customer_name is string
+        && request.resource.data.customer_name.size() > 0
+        && request.resource.data.customer_phone is string
+        && request.resource.data.customer_phone.size() >= 7;
+      allow read, update, delete: if isAdmin();
+    }
+  }
+}

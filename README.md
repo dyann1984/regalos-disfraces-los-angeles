@@ -1,7 +1,7 @@
 # 🎁 Regalos, Disfraces y Más — Los Ángeles
 
 Tienda virtual oficial de comercio electrónico para **Regalos, Disfraces y Más — Los Ángeles** (**Tienda de Regalos, Disfraces Los Angeles**, México).
-Diseñada con estética boutique en tonos rosa pastel, fucsia y detalles dorados, tipografía **Poppins**, animaciones fluidas con **Framer Motion**, integración directa de pedidos por **WhatsApp (`+52 56 3547 8874`)**, ubicación oficial verificada en **Google Maps (`https://maps.app.goo.gl/emr5dX3coahaxH6D7`)**, panel administrativo protegido con **Supabase Auth + PostgreSQL + Storage (RLS)** y asistente multimodal en servidor **"Agregar producto con IA"**.
+Diseñada con estética boutique en tonos rosa pastel, fucsia y detalles dorados, tipografía **Poppins**, animaciones fluidas con **Framer Motion**, integración directa de pedidos por **WhatsApp (`+52 56 3547 8874`)**, ubicación oficial verificada en **Google Maps (`https://maps.app.goo.gl/emr5dX3coahaxH6D7`)**, panel administrativo protegido con **Firebase Authentication + Cloud Firestore + Cloud Storage** (con reglas de seguridad exclusivas para administradora y respaldo compatible con Supabase) y asistente multimodal en servidor **"Agregar producto con IA"** con **Google Gemini (`gemini-2.5-flash`)**.
 
 ---
 
@@ -22,44 +22,21 @@ Diseñada con estética boutique en tonos rosa pastel, fucsia y detalles dorados
   - Cuando la propietaria publica productos reales con precio y existencia confirmados desde `/admin`, se habilita automáticamente la compra en el carrito.
 - **Ubicación Real Verificada**: Sección **"Visítanos"** (`#visitanos`), contacto y pie de página con botón **"Cómo llegar"** y enlace directo a **Google Maps (`https://maps.app.goo.gl/emr5dX3coahaxH6D7` — Tienda de Regalos, Disfraces Los Angeles)**, sin domicilios ni horarios inventados.
 
-### 2. Panel Administrativo Real (`/admin`)
-- **Autenticación Real y Blindada con Supabase Auth**:
-  - Inicio de sesión seguro con correo y contraseña (`supabase.auth.signInWithPassword`), sin contraseñas fijas ni simulaciones.
-  - **Protección contra apropiación de cuenta**: El auto-registro público desde `/admin` está deshabilitado y la tabla `public.admin_users` bloquea inserciones desde clientes web (`anon`/`authenticated`). Únicamente la propietaria desde el SQL Editor de su cuenta de Supabase puede autorizar su correo mediante `SELECT public.authorize_admin_by_email('su-correo@dominio.com');`.
-- **Diseño Móvil Primero (100% en Español)**:
-  - Captura directa desde la **cámara del celular** (`capture="environment"`) o selección múltiple desde la **galería**.
-  - Hasta **5 fotografías por producto** comprimidas y alojadas en **Supabase Storage** (bucket `store-media`).
+### 2. Panel Administrativo Real (`/admin`) con Firebase de Google
+- **Autenticación Exclusiva para la Propietaria (`Firebase Authentication`)**:
+  - Soporta inicio de sesión con **Correo y Contraseña** y con **Cuenta de Google** de la propietaria.
+  - **Protección contra apropiación de cuenta**: No existe registro público en `/admin` y las reglas [`firestore.rules`](./firestore.rules) bloquean cualquier escritura desde la web en la colección `admin_users` (`allow write: if false`). Únicamente la cuenta dada de alta en `admin_users` desde Firebase Console (y opcionalmente en `NEXT_PUBLIC_ADMIN_ALLOWED_EMAILS`) puede acceder.
+- **Base de Datos en Tiempo Real (`Cloud Firestore`)**:
+  - Colecciones: `categories`, `products`, `store_gallery`, `store_banners`, `orders` y `admin_users`.
+- **Fotografías desde Celular (`Cloud Storage` + Alternativa Gratuita `Plan Spark`)**:
+  - Captura directa desde la **cámara del celular** (`capture="environment"`) o selección desde la galería (hasta **5 fotografías por producto**).
+  - Soporta **Firebase Cloud Storage** (`store-media/{folder}/...` protegido por [`storage.rules`](./storage.rules)), **Cloudinary gratuito** (25 GB sin tarjeta) o **modo WebP compacto en Firestore** (`~45–65 KB` por imagen) para operar **100% gratis en el Plan Spark sin tarjeta bancaria**.
 
 ### 3. Función "Agregar producto con IA" (`/api/admin/ai-product`)
-- **Ejecución Exclusiva en Servidor**: Protege la clave `GEMINI_API_KEY` (Google Gemini Multimodal `gemini-2.5-flash`) u `OPENAI_API_KEY` (`gpt-4o-mini`) sin exponerla jamás al navegador.
+- **Ejecución Exclusiva en Servidor con Google Gemini (`gemini-2.5-flash`)**:
+  - Verifica primero el **ID Token de Firebase Auth** y el rol de administradora en `admin_users`.
+  - Protege la clave `GEMINI_API_KEY` en el servidor sin exponerla al navegador.
 - **Reglas Estrictas Anti-Alucinación**:
   - No inventa marcas, materiales no visibles, tallas exactas, precios ni disponibilidad.
   - Si detecta **varios productos en una misma fotografía**, solicita a la administradora elegir cuál desea registrar.
   - Requiere **revisión y confirmación humana obligatoria**, además de capturar el precio real en MXN y las existencias antes de presionar **"Publicar"**.
-
----
-
-## 🗄️ Guía Breve y Segura de Configuración de Supabase (Sin Exponer Claves)
-
-1. **Crear o conectar el proyecto Supabase**:
-   - Entra a [supabase.com/dashboard](https://supabase.com/dashboard) y crea un proyecto nuevo (o selecciona uno existente).
-2. **Ejecutar Migraciones (Base de Datos, RLS y Storage)**:
-   - En el menú izquierdo de Supabase abre **SQL Editor → New query**, pega el contenido íntegro de [`supabase/schema.sql`](./supabase/schema.sql) y presiona **Run**.
-   - Esto crea las tablas (`admin_users`, `categories`, `products`, `store_gallery`, `store_banners`, `orders`), activa **Row Level Security (RLS)** y crea el bucket público `store-media` con permisos de escritura exclusivos para administradora.
-3. **Registrar y Autorizar a la Propietaria (Blindado contra terceros)**:
-   - Ve a **Authentication → Users → Add user → Create new user**.
-   - Escribe el correo y contraseña de la propietaria, marca **Auto Confirm User** y haz clic en **Create user**.
-   - Regresa al **SQL Editor** y ejecuta esta única línea con ese mismo correo:
-     ```sql
-     SELECT public.authorize_admin_by_email('correo-de-la-propietaria@ejemplo.com');
-     ```
-4. **Configurar Variables de Entorno (en `.env.local` y en Vercel)**:
-   - En Supabase ve a **Project Settings → API** y copia `Project URL` y `anon public` key.
-   - En tu proyecto de **Vercel** (*Settings → Environment Variables*) y en tu archivo local `.env.local` define:
-     ```env
-     NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
-     NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_anon_key_publica
-     GEMINI_API_KEY=tu_clave_gemini_servidor
-     NEXT_PUBLIC_WHATSAPP_NUMBER=525635478874
-     ```
-   - Realiza un *Redeploy* en Vercel para que tome las variables.

@@ -1,0 +1,37 @@
+rules_version = '2';
+
+// ============================================================================
+// REGLAS DE SEGURIDAD FIREBASE CLOUD STORAGE — REGALOS, DISFRACES Y MÁS "LOS ÁNGELES"
+// ============================================================================
+// - Lectura pública de fotografías del catálogo, categorías, banners y galería.
+// - Subida, actualización y eliminación EXCLUSIVAS para la administradora autorizada
+//   en Firestore (`admin_users/{uid}` o `admin_users/{email}`).
+// - Validación estricta de formato (JPG, PNG, WEBP) y tamaño máximo (5 MB).
+// ============================================================================
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAdmin() {
+      return request.auth != null && (
+        firestore.exists(/databases/(default)/documents/admin_users/$(request.auth.uid)) ||
+        (
+          request.auth.token.email != null &&
+          firestore.exists(/databases/(default)/documents/admin_users/$(request.auth.token.email.lower()))
+        )
+      );
+    }
+
+    function isValidImageUpload() {
+      return request.resource != null
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    match /store-media/{folder}/{fileName} {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidImageUpload();
+      allow delete: if isAdmin();
+    }
+  }
+}
