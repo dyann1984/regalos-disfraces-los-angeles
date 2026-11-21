@@ -38,6 +38,8 @@ export default function CatalogoPage() {
   const {
     products,
     categories,
+    isLoadingCatalog,
+    refreshStoreData,
     searchQuery,
     setSearchQuery,
     selectedCategory,
@@ -48,6 +50,11 @@ export default function CatalogoPage() {
     toastVariant,
     celebrationActive,
   } = useStore();
+
+  // Garantizar lectura real y actualizada desde Cloud Firestore al abrir /catalogo
+  useEffect(() => {
+    refreshStoreData(false);
+  }, [refreshStoreData]);
 
   // Sincronizar parámetros de URL (?categoria=... y ?q=...) al cargar o navegar en /catalogo
   useEffect(() => {
@@ -340,7 +347,16 @@ export default function CatalogoPage() {
         </div>
 
         {/* Cuadrícula responsive de productos */}
-        {filteredProducts.length === 0 ? (
+        {isLoadingCatalog && activeProducts.length === 0 ? (
+          <div className="bg-white rounded-3xl p-10 text-center border border-pink-200 shadow-card space-y-2">
+            <p className="text-sm font-bold text-[#6A1B4D]">
+              Cargando catálogo actualizado...
+            </p>
+            <p className="text-xs text-gray-500">
+              Consultando los productos disponibles en tienda.
+            </p>
+          </div>
+        ) : filteredProducts.length === 0 ? (
           <div className="bg-white rounded-3xl p-10 text-center border border-pink-200 shadow-card space-y-3">
             <p className="text-base font-bold text-[#6A1B4D]">
               No encontramos artículos que coincidan con tu filtro actual

@@ -18,6 +18,18 @@ import {
   INITIAL_STORE_GALLERY,
 } from "@/data/mockCatalog";
 import {
+  createOrderInFirestore,
+  deleteProductFromFirestore,
+  fetchStoreDataFromFirestore,
+  isFirebaseConfigured,
+  updateGalleryPhotoInFirestore,
+  updateOrderStatusInFirestore,
+  updateProductFieldsInFirestore,
+  upsertBannerInFirestore,
+  upsertCategoryInFirestore,
+  upsertProductInFirestore,
+} from "@/lib/firebase";
+import {
   isSupabaseConfigured,
   mapBannerToRow,
   mapCategoryToRow,
@@ -42,6 +54,7 @@ interface StoreContextType {
   favorites: string[];
   orders: CustomerOrder[];
   isLoadingCatalog: boolean;
+  isPersistedInCloud: boolean;
   isPersistedInSupabase: boolean;
   searchQuery: string;
   selectedCategory: CategorySlug | "all";
@@ -79,6 +92,11 @@ interface StoreContextType {
     orderData: Omit<CustomerOrder, "id" | "createdAt" | "status">
   ) => Promise<CustomerOrder>;
   upsertProduct: (product: Product) => Promise<void>;
+  quickUpdateProduct: (
+    productId: string,
+    fields: Partial<{ price: number | null; stock: number | null; active: boolean }>,
+    successMessage?: string
+  ) => Promise<void>;
   deleteProduct: (productId: string) => Promise<void>;
   upsertCategory: (category: Category) => Promise<void>;
   updateGalleryPhoto: (photo: StoreGalleryPhoto, displayOrder?: number) => Promise<void>;
@@ -88,7 +106,6 @@ interface StoreContextType {
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
-// Solo se conserva en el navegador el carrito y la lista de deseos del comprador
 const CLIENT_SESSION_KEYS = {
   CART: "la_boutique_cart_v3",
   FAVS: "la_boutique_favs_v3",
@@ -96,14 +113,18 @@ const CLIENT_SESSION_KEYS = {
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
-  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
+  const [products, setProducts] = useState<Product[]>(
+    isFirebaseConfigured ? [] : INITIAL_PRODUCTS
+  );
   const [storeGallery, setStoreGallery] = useState<StoreGalleryPhoto[]>(INITIAL_STORE_GALLERY);
   const [banners, setBanners] = useState<StoreBanner[]>(INITIAL_BANNERS);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
-  const [isLoadingCatalog, setIsLoadingCatalog] = useState<boolean>(isSupabaseConfigured);
-  const [isPersistedInSupabase, setIsPersistedInSupabase] = useState<boolean>(false);
+  const [isLoadingCatalog, setIsLoadingCatalog] = useState<boolean>(
+    isFirebaseConfigured || isSupabaseConfigured
+  );
+  const [isPersistedInCloud, setIsPersistedInCloud] = useState<boolean>(false);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<CategorySlug | "all">("all");
@@ -176,9 +197,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [favorites]);
 
   const refreshStoreData = useCallback(async (includeAdminData = false) => {
+    // 1. Priorizar Cloud Firestore de Firebase si está configurado
+    if (isFirebaseConfigured) {
+      setIsLoadingCatalog(true);
+      try {
+        const data = await fetchStoreDataFromFirestore(includeAdminData);
+        if (data.categories.length > 0) setCategories(data.categories);
+        setProducts(data.products.filter((p) => !p.isDemo));
+        if (data.storeGallery.length > 0) setStoreGallery(data.storeGallery);
+        if (data.banners.length > 0) setBanners(data.banners);
+        if (includeAdminData) setOrders(data.orders);
+        setIsPersistedInCloud(true);
+      } catch {
+        // Conservar datos base de respaldo si aún no hay colecciones creadas
+      } finally {
+        setIsLoadingCatalog(false);
+      }
+      return;
+    }
+
+    // 2. Respaldo no destructivo en Supabase si estuviera activo
     if (!supabase || !isSupabaseConfigured) {
       setIsLoadingCatalog(false);
-      setIsPersistedInSupabase(false);
+      setIsPersistedInCloud(false);
       return;
     }
 
@@ -196,11 +237,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!prodRes.error && Array.isArray(prodRes.data)) {
-        // Si ya hay productos reales en Supabase, mostrarlos; si la tabla está vacía, mantener catálogo base hasta que la administradora publique el primero
         if (prodRes.data.length > 0) {
           setProducts(prodRes.data.map(mapRowToProduct));
         }
-        setIsPersistedInSupabase(true);
+        setIsPersistedInCloud(true);
       }
 
       if (!galRes.error && Array.isArray(galRes.data) && galRes.data.length > 0) {
@@ -352,7 +392,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       status: "pendiente_whatsapp",
     };
 
-    if (supabase && isSupabaseConfigured) {
+    if (isFirebaseConfigured) {
+      try {
+        await createOrderInFirestore(newOrder);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Error de red";
+        showToast(
+          `Nota: El pedido se enviará por WhatsApp, pero no se pudo registrar en Firestore (${msg}).`,
+          "info"
+        );
+      }
+    } else if (supabase && isSupabaseConfigured) {
       const { error } = await supabase.from("orders").insert(mapOrderToRow(newOrder));
       if (error) {
         showToast(
@@ -369,23 +419,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   };
 
   const upsertProduct = async (product: Product): Promise<void> => {
-    if (!supabase || !isSupabaseConfigured) {
-      throw new Error(
-        "Supabase no está configurado. Configura NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY."
-      );
-    }
-
     const sanitizedProduct: Product = {
       ...product,
+      isDemo: false,
       images: (product.images || []).slice(0, 5),
     };
 
-    const { error } = await supabase
-      .from("products")
-      .upsert(mapProductToRow(sanitizedProduct), { onConflict: "id" });
-
-    if (error) {
-      throw new Error(`No se pudo guardar el producto en Supabase: ${error.message}`);
+    if (isFirebaseConfigured) {
+      await upsertProductInFirestore(sanitizedProduct);
+    } else if (supabase && isSupabaseConfigured) {
+      const { error } = await supabase
+        .from("products")
+        .upsert(mapProductToRow(sanitizedProduct), { onConflict: "id" });
+      if (error) {
+        throw new Error(`No se pudo guardar el producto: ${error.message}`);
+      }
+    } else {
+      throw new Error("La base de datos administrativa no está configurada aún.");
     }
 
     setProducts((prev) => {
@@ -394,17 +444,49 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         ? prev.map((p) => (p.id === sanitizedProduct.id ? sanitizedProduct : p))
         : [sanitizedProduct, ...prev];
     });
-    showToast(`Producto "${sanitizedProduct.name}" publicado y sincronizado.`, "success");
+    showToast(
+      sanitizedProduct.active
+        ? `Producto "${sanitizedProduct.name}" publicado en el catálogo.`
+        : `Borrador "${sanitizedProduct.name}" guardado.`,
+      "success"
+    );
+  };
+
+  const quickUpdateProduct = async (
+    productId: string,
+    fields: Partial<{ price: number | null; stock: number | null; active: boolean }>,
+    successMessage?: string
+  ): Promise<void> => {
+    if (isFirebaseConfigured) {
+      await updateProductFieldsInFirestore(productId, fields);
+    } else if (supabase && isSupabaseConfigured) {
+      const { error } = await supabase
+        .from("products")
+        .update({ ...fields, updated_at: new Date().toISOString() })
+        .eq("id", productId);
+      if (error) {
+        throw new Error(`No se pudo actualizar el producto: ${error.message}`);
+      }
+    } else {
+      throw new Error("La base de datos administrativa no está configurada aún.");
+    }
+
+    setProducts((prev) =>
+      prev.map((p) => (p.id === productId ? { ...p, ...fields, isDemo: false } : p))
+    );
+    showToast(successMessage || "Producto actualizado correctamente.", "success");
   };
 
   const deleteProduct = async (productId: string): Promise<void> => {
-    if (!supabase || !isSupabaseConfigured) {
-      throw new Error("Supabase no está configurado.");
-    }
-
-    const { error } = await supabase.from("products").delete().eq("id", productId);
-    if (error) {
-      throw new Error(`No se pudo eliminar el producto: ${error.message}`);
+    if (isFirebaseConfigured) {
+      await deleteProductFromFirestore(productId);
+    } else if (supabase && isSupabaseConfigured) {
+      const { error } = await supabase.from("products").delete().eq("id", productId);
+      if (error) {
+        throw new Error(`No se pudo eliminar el producto: ${error.message}`);
+      }
+    } else {
+      throw new Error("La base de datos administrativa no está configurada aún.");
     }
 
     setProducts((prev) => prev.filter((p) => p.id !== productId));
@@ -412,16 +494,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   };
 
   const upsertCategory = async (category: Category): Promise<void> => {
-    if (!supabase || !isSupabaseConfigured) {
-      throw new Error("Supabase no está configurado.");
-    }
-
-    const { error } = await supabase
-      .from("categories")
-      .upsert(mapCategoryToRow(category), { onConflict: "slug" });
-
-    if (error) {
-      throw new Error(`Error al guardar categoría: ${error.message}`);
+    if (isFirebaseConfigured) {
+      await upsertCategoryInFirestore(category);
+    } else if (supabase && isSupabaseConfigured) {
+      const { error } = await supabase
+        .from("categories")
+        .upsert(mapCategoryToRow(category), { onConflict: "slug" });
+      if (error) {
+        throw new Error(`Error al guardar categoría: ${error.message}`);
+      }
+    } else {
+      throw new Error("La base de datos administrativa no está configurada aún.");
     }
 
     setCategories((prev) => {
@@ -437,44 +520,46 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     photo: StoreGalleryPhoto,
     displayOrder = 1
   ): Promise<void> => {
-    if (!supabase || !isSupabaseConfigured) {
-      throw new Error("Supabase no está configurado.");
-    }
-
-    const { error } = await supabase.from("store_gallery").upsert(
-      {
-        id: photo.id,
-        title: photo.title,
-        caption: photo.caption,
-        image_url: photo.image,
-        display_order: displayOrder,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" }
-    );
-
-    if (error) {
-      throw new Error(`Error al actualizar fotografía de galería: ${error.message}`);
+    if (isFirebaseConfigured) {
+      await updateGalleryPhotoInFirestore(photo, displayOrder);
+    } else if (supabase && isSupabaseConfigured) {
+      const { error } = await supabase.from("store_gallery").upsert(
+        {
+          id: photo.id,
+          title: photo.title,
+          caption: photo.caption,
+          image_url: photo.image,
+          display_order: displayOrder,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id" }
+      );
+      if (error) {
+        throw new Error(`Error al actualizar fotografía de galería: ${error.message}`);
+      }
+    } else {
+      throw new Error("La base de datos administrativa no está configurada aún.");
     }
 
     setStoreGallery((prev) => {
       const exists = prev.some((g) => g.id === photo.id);
       return exists ? prev.map((g) => (g.id === photo.id ? photo : g)) : [...prev, photo];
     });
-    showToast(`Fotografía "${photo.title}" guardada en Supabase.`, "success");
+    showToast(`Fotografía "${photo.title}" guardada correctamente.`, "success");
   };
 
   const upsertBanner = async (banner: StoreBanner): Promise<void> => {
-    if (!supabase || !isSupabaseConfigured) {
-      throw new Error("Supabase no está configurado.");
-    }
-
-    const { error } = await supabase
-      .from("store_banners")
-      .upsert(mapBannerToRow(banner), { onConflict: "id" });
-
-    if (error) {
-      throw new Error(`Error al actualizar el banner: ${error.message}`);
+    if (isFirebaseConfigured) {
+      await upsertBannerInFirestore(banner);
+    } else if (supabase && isSupabaseConfigured) {
+      const { error } = await supabase
+        .from("store_banners")
+        .upsert(mapBannerToRow(banner), { onConflict: "id" });
+      if (error) {
+        throw new Error(`Error al actualizar el banner: ${error.message}`);
+      }
+    } else {
+      throw new Error("La base de datos administrativa no está configurada aún.");
     }
 
     setBanners((prev) => {
@@ -488,17 +573,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     orderId: string,
     status: CustomerOrder["status"]
   ): Promise<void> => {
-    if (!supabase || !isSupabaseConfigured) {
-      throw new Error("Supabase no está configurado.");
-    }
-
-    const { error } = await supabase
-      .from("orders")
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq("id", orderId);
-
-    if (error) {
-      throw new Error(`Error al actualizar el pedido: ${error.message}`);
+    if (isFirebaseConfigured) {
+      await updateOrderStatusInFirestore(orderId, status);
+    } else if (supabase && isSupabaseConfigured) {
+      const { error } = await supabase
+        .from("orders")
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq("id", orderId);
+      if (error) {
+        throw new Error(`Error al actualizar el pedido: ${error.message}`);
+      }
+    } else {
+      throw new Error("La base de datos administrativa no está configurada aún.");
     }
 
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status } : o)));
@@ -517,7 +603,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           favorites,
           orders,
           isLoadingCatalog,
-          isPersistedInSupabase,
+          isPersistedInCloud,
+          isPersistedInSupabase: isPersistedInCloud,
           searchQuery,
           selectedCategory,
           sortBy,
@@ -547,6 +634,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           refreshStoreData,
           createOrder,
           upsertProduct,
+          quickUpdateProduct,
           deleteProduct,
           upsertCategory,
           updateGalleryPhoto,
