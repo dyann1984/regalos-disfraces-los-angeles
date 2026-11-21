@@ -299,6 +299,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
 
     const maxAllowed = product.stock;
+    const totalAlreadyInCart = cart
+      .filter((item) => item.product.id === product.id)
+      .reduce((sum, item) => sum + item.quantity, 0);
+
+    if (totalAlreadyInCart >= maxAllowed) {
+      showToast(
+        `Ya tienes el máximo disponible en tu carrito (${maxAllowed} ud${maxAllowed === 1 ? "" : "s"}.).`,
+        "info"
+      );
+      return;
+    }
+
+    const allowedToAdd = Math.min(quantity, maxAllowed - totalAlreadyInCart);
 
     setCart((prev) => {
       const variantSignature = JSON.stringify(selectedVariants || {});
@@ -311,7 +324,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
       if (existingIndex > -1) {
         const updated = [...prev];
-        const nextQty = Math.min(maxAllowed, updated[existingIndex].quantity + quantity);
+        const nextQty = Math.min(maxAllowed, updated[existingIndex].quantity + allowedToAdd);
         updated[existingIndex] = { ...updated[existingIndex], quantity: nextQty };
         return updated;
       }
@@ -320,14 +333,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         ...prev,
         {
           product,
-          quantity: Math.min(maxAllowed, quantity),
+          quantity: allowedToAdd,
           selectedVariants,
           orderNotes,
         },
       ];
     });
 
-    showToast(`¡"${product.name}" se agregó a tu carrito!`, "success");
+    if (allowedToAdd < quantity) {
+      showToast(
+        `Se agregaron ${allowedToAdd} ud(s). (existencia máxima: ${maxAllowed}).`,
+        "info"
+      );
+    } else {
+      showToast(`¡"${product.name}" se agregó a tu carrito!`, "success");
+    }
   };
 
   const removeFromCart = (index: number) => {

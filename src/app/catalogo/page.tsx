@@ -274,16 +274,16 @@ export default function CatalogoPage() {
             </div>
           </div>
 
-          {/* Botones de filtro por las 6 categorías oficiales */}
+          {/* Botones de filtro por las 6 categorías oficiales (deslizable en móvil) */}
           <div
             role="tablist"
             aria-label="Filtrar por categoría"
-            className="flex flex-wrap items-center gap-2 pt-2 border-t border-pink-100"
+            className="flex overflow-x-auto sm:flex-wrap items-center gap-2 pt-2 pb-1 border-t border-pink-100 no-scrollbar"
           >
             <button
               type="button"
               onClick={() => handleSelectCategory("all")}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1.5 ${
+              className={`shrink-0 px-3.5 py-2 sm:py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1.5 ${
                 selectedCategory === "all"
                   ? "bg-[#D81B60] text-white shadow-sm"
                   : "bg-pink-50/80 text-[#6A1B4D] hover:bg-pink-100 border border-pink-200/70"
@@ -311,7 +311,7 @@ export default function CatalogoPage() {
                     key={cat.id}
                     type="button"
                     onClick={() => handleSelectCategory(cat.slug)}
-                    className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1.5 ${
+                    className={`shrink-0 px-3.5 py-2 sm:py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1.5 ${
                       isSelected
                         ? "bg-[#D81B60] text-white shadow-sm"
                         : "bg-pink-50/80 text-[#6A1B4D] hover:bg-pink-100 border border-pink-200/70"
@@ -374,7 +374,7 @@ export default function CatalogoPage() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3.5 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-5">
             {filteredProducts.map((product, idx) => (
               <ProductCard key={product.id} product={product} index={idx} />
             ))}

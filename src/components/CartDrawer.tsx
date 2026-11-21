@@ -16,7 +16,11 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { useStore } from "@/context/StoreContext";
-import { buildOrderWhatsAppUrl, formatMXN } from "@/lib/whatsapp";
+import {
+  buildOrderWhatsAppUrl,
+  buildQuickCartWhatsAppUrl,
+  formatMXN,
+} from "@/lib/whatsapp";
 import { CustomerOrder } from "@/types/store";
 
 export default function CartDrawer() {
@@ -41,6 +45,7 @@ export default function CartDrawer() {
   const [address, setAddress] = useState("");
   const [occasion, setOccasion] = useState("Cumpleaños");
   const [orderNotes, setOrderNotes] = useState("");
+  const [privacyConsent, setPrivacyConsent] = useState(false);
   const [couponCode, setCouponCode] = useState("");
   const [appliedDiscountRate, setAppliedDiscountRate] = useState(0);
   const [couponFeedback, setCouponFeedback] = useState<{
@@ -76,7 +81,7 @@ export default function CartDrawer() {
 
   const handleConfirmOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customerName.trim() || !customerPhone.trim()) return;
+    if (!customerName.trim() || !customerPhone.trim() || !privacyConsent) return;
 
     const order = await createOrder({
       customerName: customerName.trim(),
@@ -208,7 +213,7 @@ export default function CartDrawer() {
                               <img
                                 src={item.product.images[0]}
                                 alt={item.product.name}
-                                className="w-16 h-16 rounded-xl object-cover bg-white border border-pink-100 shrink-0"
+                                className="w-16 h-16 rounded-xl object-contain p-1 bg-white border border-pink-100 shrink-0"
                               />
                               <div className="flex-1 min-w-0">
                                 <h3 className="text-xs font-bold text-gray-800 truncate">
@@ -247,12 +252,23 @@ export default function CartDrawer() {
                                     <motion.button
                                       type="button"
                                       whileTap={{ scale: 0.85 }}
+                                      disabled={
+                                        item.product.stock !== null &&
+                                        item.quantity >= item.product.stock
+                                      }
                                       onClick={() => updateCartQuantity(idx, item.quantity + 1)}
-                                      className="w-5 h-5 text-xs font-bold text-[#880E4F]"
+                                      className="w-5 h-5 text-xs font-bold text-[#880E4F] disabled:opacity-35 disabled:cursor-not-allowed"
                                     >
                                       +
                                     </motion.button>
                                   </div>
+
+                                  {item.product.stock !== null &&
+                                    item.quantity >= item.product.stock && (
+                                      <span className="text-[10px] font-bold text-amber-700">
+                                        Máx. ({item.product.stock})
+                                      </span>
+                                    )}
 
                                   <button
                                     type="button"
@@ -437,6 +453,21 @@ export default function CartDrawer() {
                     />
                   </div>
 
+                  <label className="flex items-start gap-2.5 p-3 rounded-2xl bg-[#FDF2F7] border border-pink-200 text-[11px] text-[#4A1936] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      required
+                      checked={privacyConsent}
+                      onChange={(e) => setPrivacyConsent(e.target.checked)}
+                      className="mt-0.5 rounded text-[#D81B60] focus:ring-[#D81B60]"
+                    />
+                    <span>
+                      <strong>Consentimiento:</strong> Autorizo compartir estos datos de contacto
+                      únicamente por WhatsApp con <strong>Regalos, Disfraces y Más — Los Ángeles</strong>{" "}
+                      para confirmar existencias y coordinar la entrega de mi pedido.
+                    </span>
+                  </label>
+
                   <div className="p-3 rounded-2xl bg-sky-50 border border-sky-200 text-[11px] text-sky-900 space-y-1">
                     <div className="flex items-center gap-1.5 font-bold">
                       <CreditCard className="w-4 h-4 text-sky-600" />
@@ -595,15 +626,26 @@ export default function CartDrawer() {
                 </div>
 
                 {step === "cart" ? (
-                  <motion.button
-                    type="button"
-                    whileHover={{ scale: 1.01 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => setStep("checkout")}
-                    className="btn-shimmer w-full py-3 rounded-full bg-gradient-to-r from-[#E91E63] to-[#C2185B] hover:from-[#D81B60] hover:to-[#AD1457] text-white text-xs sm:text-sm font-bold shadow-md transition"
-                  >
-                    Continuar con datos de entrega →
-                  </motion.button>
+                  <div className="space-y-2">
+                    <a
+                      href={buildQuickCartWhatsAppUrl(cart, finalTotal, deliveryMethod)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-shimmer w-full py-3 px-4 rounded-full bg-gradient-to-r from-[#25D366] to-[#1DA851] hover:from-[#1DA851] hover:to-[#128C7E] text-white text-xs sm:text-sm font-bold shadow-md transition flex items-center justify-center gap-2"
+                    >
+                      <PhoneCall className="w-4 h-4" />
+                      <span>Pedir directo por WhatsApp (sin registro)</span>
+                    </a>
+                    <motion.button
+                      type="button"
+                      whileHover={{ scale: 1.01 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => setStep("checkout")}
+                      className="w-full py-2.5 rounded-full bg-white border border-pink-300 text-[#6A1B4D] hover:bg-pink-50 text-xs font-bold transition"
+                    >
+                      O agregar datos de entrega y ocasión →
+                    </motion.button>
+                  </div>
                 ) : (
                   <div className="flex gap-2">
                     <button
