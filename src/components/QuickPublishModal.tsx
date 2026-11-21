@@ -26,6 +26,7 @@ import {
 } from "@/types/store";
 import {
   compressImageForAI,
+  MAX_PRODUCT_IMAGES,
   OptimizedImageResult,
   optimizeImageWithPreview,
 } from "@/lib/imageUtils";
@@ -77,8 +78,10 @@ export default function QuickPublishModal({
   const defaultCategorySlug: CategorySlug =
     activeCategories[0]?.slug || "regalos";
 
-  // Estado del formulario rápido
-  const [photo, setPhoto] = useState<OptimizedImageResult | null>(null);
+  // Estado del formulario rápido (soporta 1 a 5 fotografías optimizadas WebP)
+  const [photos, setPhotos] = useState<OptimizedImageResult[]>([]);
+  const [photoCaptureMode, setPhotoCaptureMode] = useState<"replace" | "append">("replace");
+  const photo = photos[0] || null;
   const [processingPhoto, setProcessingPhoto] = useState(false);
   const [name, setName] = useState("");
   const [priceInput, setPriceInput] = useState("");
@@ -109,27 +112,24 @@ export default function QuickPublishModal({
   const sessionProductIdRef = useRef<string>(createUniqueProductId());
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
-  const previewUrlRef = useRef<string | null>(null);
+  const previewUrlsRef = useRef<string[]>([]);
 
-  // Limpiar object URL al desmontar o reemplazar vista previa
+  // Limpiar object URLs al desmontar
   useEffect(() => {
-    previewUrlRef.current = photo?.previewUrl || null;
-  }, [photo]);
+    previewUrlsRef.current = photos.map((p) => p.previewUrl);
+  }, [photos]);
 
   useEffect(() => {
     return () => {
-      if (previewUrlRef.current) {
-        URL.revokeObjectURL(previewUrlRef.current);
-      }
+      previewUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
     };
   }, []);
 
   const resetFormForNewProduct = () => {
-    if (previewUrlRef.current) {
-      URL.revokeObjectURL(previewUrlRef.current);
-      previewUrlRef.current = null;
-    }
-    setPhoto(null);
+    previewUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+    previewUrlsRef.current = [];
+    setPhotos([]);
+    setPhotoCaptureMode("replace");
     setName("");
     setPriceInput("");
     setCategorySlug(defaultCategorySlug);
@@ -157,23 +157,45 @@ export default function QuickPublishModal({
   const isBusy = Boolean(submittingMode) || processingPhoto;
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const rawFile = e.target.files?.[0];
+    const fileList = e.target.files;
     // Resetear input inmediatamente para permitir tomar otra foto en iOS Safari / Android Chrome
     e.target.value = "";
-    if (!rawFile) return;
+    if (!fileList || fileList.length === 0) return;
 
+    const incoming = Array.from(fileList);
     setFormError(null);
     setGeminiError(null);
-    setGeminiNote(null);
-    setGeminiSuggestedName(null);
+    if (photoCaptureMode === "replace") {
+      setGeminiNote(null);
+      setGeminiSuggestedName(null);
+    }
     setProcessingPhoto(true);
 
     try {
-      const optimized = await optimizeImageWithPreview(rawFile, 1400, 0.84);
-      if (previewUrlRef.current) {
-        URL.revokeObjectURL(previewUrlRef.current);
+      const remainingSlots =
+        photoCaptureMode === "append"
+          ? Math.max(0, MAX_PRODUCT_IMAGES - photos.length)
+          : MAX_PRODUCT_IMAGES;
+      if (remainingSlots <= 0) {
+        onShowToast(`Máximo ${MAX_PRODUCT_IMAGES} fotografías por producto.`, "info");
+        return;
       }
-      setPhoto(optimized);
+
+      const optimizedBatch: OptimizedImageResult[] = [];
+      for (const rawFile of incoming.slice(0, remainingSlots)) {
+        const opt = await optimizeImageWithPreview(rawFile, 1400, 0.84);
+        optimizedBatch.push(opt);
+      }
+
+      if (photoCaptureMode === "append") {
+        setPhotos((prev) => [...prev, ...optimizedBatch].slice(0, MAX_PRODUCT_IMAGES));
+      } else {
+        setPhotos((prev) => {
+          if (prev[0]) URL.revokeObjectURL(prev[0].previewUrl);
+          const rest = prev.slice(1);
+          return [...optimizedBatch, ...rest].slice(0, MAX_PRODUCT_IMAGES);
+        });
+      }
     } catch (err) {
       const message =
         err instanceof Error
@@ -184,6 +206,23 @@ export default function QuickPublishModal({
     } finally {
       setProcessingPhoto(false);
     }
+  };
+
+  const handleRemovePhotoAt = (idx: number) => {
+    setPhotos((prev) => {
+      const target = prev[idx];
+      if (target) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((_, i) => i !== idx);
+    });
+  };
+
+  const handleMakePrimaryPhoto = (idx: number) => {
+    if (idx <= 0) return;
+    setPhotos((prev) => {
+      const chosen = prev[idx];
+      if (!chosen) return prev;
+      return [chosen, ...prev.filter((_, i) => i !== idx)];
+    });
   };
 
   const handleSuggestCategoryWithGemini = async () => {
@@ -302,16 +341,22 @@ export default function QuickPublishModal({
     submittingRef.current = true;
     setSubmittingMode(mode);
 
-    let uploadedUrl: string | null = null;
+    let uploadedUrls: string[] = [];
     try {
-      // Paso A: Subida firmada a Cloudinary (nunca publicar si falla)
-      setStatusStep("Subiendo fotografía WebP optimizada a Cloudinary...");
-      uploadedUrl = await onUploadPhoto(photo.file);
-
-      if (!uploadedUrl || !uploadedUrl.startsWith("http")) {
-        throw new Error(
-          "La subida de la fotografía no devolvió una URL válida. No se publicó el producto."
+      // Paso A: Subida firmada a Cloudinary (1 a 5 fotos; nunca publicar si falla)
+      for (let i = 0; i < photos.length; i++) {
+        setStatusStep(
+          photos.length > 1
+            ? `Subiendo fotografía ${i + 1} de ${photos.length} a Cloudinary...`
+            : "Subiendo fotografía WebP optimizada a Cloudinary..."
         );
+        const url = await onUploadPhoto(photos[i].file);
+        if (!url || !url.startsWith("http")) {
+          throw new Error(
+            "La subida de la fotografía no devolvió una URL válida. No se publicó el producto."
+          );
+        }
+        uploadedUrls.push(url);
       }
 
       // Paso B: Guardar producto real en Cloud Firestore (isDemo: false)
@@ -332,7 +377,7 @@ export default function QuickPublishModal({
         description: `${cleanName} disponible en Regalos, Disfraces y Más — Los Ángeles.`,
         price: parsedPrice,
         categorySlug,
-        images: [uploadedUrl],
+        images: uploadedUrls,
         stock: cleanStock,
         isFeatured: mode === "publish",
         isSpecialOffer: false,
@@ -354,9 +399,11 @@ export default function QuickPublishModal({
         isDraft: mode === "draft",
       });
     } catch (err) {
-      // Si se subió la imagen a Cloudinary pero falló Firestore, limpiar imagen huérfana
-      if (uploadedUrl && isFirebaseConfigured) {
-        deleteImageFromCloudinary(uploadedUrl).catch(() => {});
+      // Si se subieron imágenes a Cloudinary pero falló Firestore, limpiar imágenes huérfanas
+      if (uploadedUrls.length > 0 && isFirebaseConfigured) {
+        uploadedUrls.forEach((u) => {
+          deleteImageFromCloudinary(u).catch(() => {});
+        });
       }
 
       const errorMsg =
@@ -421,6 +468,7 @@ export default function QuickPublishModal({
           ref={galleryInputRef}
           type="file"
           accept="image/*"
+          multiple
           disabled={isBusy}
           className="hidden"
           onChange={handleFileChange}
@@ -571,7 +619,10 @@ export default function QuickPublishModal({
                       <button
                         type="button"
                         disabled={isBusy}
-                        onClick={() => cameraInputRef.current?.click()}
+                        onClick={() => {
+                          setPhotoCaptureMode("replace");
+                          cameraInputRef.current?.click();
+                        }}
                         className="py-2.5 px-3 rounded-xl bg-pink-50 border border-pink-200 text-[#6A1B4D] text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-pink-100 disabled:opacity-50"
                       >
                         <RefreshCw className="w-3.5 h-3.5 text-[#D81B60]" />
@@ -581,12 +632,77 @@ export default function QuickPublishModal({
                       <button
                         type="button"
                         disabled={isBusy}
-                        onClick={() => galleryInputRef.current?.click()}
+                        onClick={() => {
+                          setPhotoCaptureMode("replace");
+                          galleryInputRef.current?.click();
+                        }}
                         className="py-2.5 px-3 rounded-xl bg-white border border-pink-200 text-[#6A1B4D] text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-pink-50 disabled:opacity-50"
                       >
                         <ImagePlus className="w-3.5 h-3.5 text-[#D81B60]" />
                         <span>Cambiar de galería</span>
                       </button>
+                    </div>
+
+                    {/* Galería multi-foto (hasta 5 fotos por producto) */}
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      {photos.map((pItem, idx) => (
+                        <div
+                          key={pItem.previewUrl}
+                          className={`relative w-14 h-14 rounded-xl overflow-hidden border-2 bg-[#FFF9FB] p-0.5 ${
+                            idx === 0 ? "border-[#D81B60]" : "border-pink-200"
+                          }`}
+                        >
+                          <img
+                            src={pItem.previewUrl}
+                            alt={`Foto ${idx + 1}`}
+                            onClick={() => handleMakePrimaryPhoto(idx)}
+                            className="w-full h-full object-contain cursor-pointer"
+                          />
+                          {idx === 0 && (
+                            <span className="absolute bottom-0 inset-x-0 bg-[#6A1B4D]/85 text-white text-[8px] font-bold text-center">
+                              Principal
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => handleRemovePhotoAt(idx)}
+                            aria-label={`Quitar foto ${idx + 1}`}
+                            className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-rose-600 text-white text-[10px] flex items-center justify-center"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+
+                      {photos.length < MAX_PRODUCT_IMAGES && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => {
+                              setPhotoCaptureMode("append");
+                              cameraInputRef.current?.click();
+                            }}
+                            className="h-14 px-2.5 rounded-xl border-2 border-dashed border-[#D81B60] bg-pink-50/60 text-[#6A1B4D] text-[10px] font-bold flex flex-col items-center justify-center gap-0.5"
+                          >
+                            <Camera className="w-3.5 h-3.5 text-[#D81B60]" />
+                            <span>+ Foto ({photos.length}/{MAX_PRODUCT_IMAGES})</span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => {
+                              setPhotoCaptureMode("append");
+                              galleryInputRef.current?.click();
+                            }}
+                            className="h-14 px-2.5 rounded-xl border-2 border-dashed border-pink-300 bg-white text-[#6A1B4D] text-[10px] font-bold flex flex-col items-center justify-center gap-0.5"
+                          >
+                            <ImagePlus className="w-3.5 h-3.5 text-[#D81B60]" />
+                            <span>+ Galería</span>
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}

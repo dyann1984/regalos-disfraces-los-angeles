@@ -430,6 +430,16 @@ export default function AdminPage() {
     }
   };
 
+  const handleMakePrimaryProductPhoto = (indexToPromote: number) => {
+    if (!editingProduct || indexToPromote <= 0) return;
+    const currentImages = editingProduct.images || [];
+    const target = currentImages[indexToPromote];
+    if (!target) return;
+    const reordered = [target, ...currentImages.filter((_, idx) => idx !== indexToPromote)];
+    setEditingProduct({ ...editingProduct, images: reordered });
+    showToast("Fotografía principal actualizada. Guarda el producto para aplicar el cambio.", "info");
+  };
+
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProduct?.name?.trim()) return;
@@ -1217,17 +1227,25 @@ export default function AdminPage() {
                     {(editingProduct.images || []).map((imgUrl, idx) => (
                       <div
                         key={`${imgUrl}-${idx}`}
-                        className="relative w-20 h-20 rounded-2xl overflow-hidden border border-pink-200 bg-pink-50 group"
+                        className="relative w-20 h-20 rounded-2xl overflow-hidden border border-pink-200 bg-[#FFF9FB] p-1 group"
                       >
                         <img
                           src={imgUrl}
                           alt={`Foto ${idx + 1}`}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-contain"
                         />
-                        {idx === 0 && (
+                        {idx === 0 ? (
                           <span className="absolute bottom-0 inset-x-0 bg-[#6A1B4D]/85 text-white text-[9px] font-bold text-center py-0.5">
                             Principal
                           </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleMakePrimaryProductPhoto(idx)}
+                            className="absolute bottom-0 inset-x-0 bg-white/90 hover:bg-[#D81B60] hover:text-white text-[#6A1B4D] text-[9px] font-bold text-center py-0.5 transition"
+                          >
+                            Hacer principal
+                          </button>
                         )}
                         <button
                           type="button"
@@ -1254,7 +1272,7 @@ export default function AdminPage() {
                           )}
                           <input
                             type="file"
-                            accept="image/jpeg,image/png,image/webp"
+                            accept="image/*"
                             capture="environment"
                             disabled={uploadingPhotos}
                             className="hidden"
@@ -1274,7 +1292,7 @@ export default function AdminPage() {
                           )}
                           <input
                             type="file"
-                            accept="image/jpeg,image/png,image/webp"
+                            accept="image/*"
                             multiple
                             disabled={uploadingPhotos}
                             className="hidden"
