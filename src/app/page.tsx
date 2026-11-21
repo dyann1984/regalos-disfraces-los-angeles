@@ -199,18 +199,36 @@ export default function HomePage() {
           {/* Grid de 6 columnas en escritorio con transiciones fluidas */}
           <AnimatePresence mode="wait">
             {selectedCategory === "all" && !searchQuery && sortBy === "featured" ? (
-              <motion.div
-                key="featured-six"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.25 }}
-                className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 sm:gap-4"
-              >
-                {featuredSix.map((product, idx) => (
-                  <ProductCard key={product.id} product={product} index={idx} />
-                ))}
-              </motion.div>
+              featuredSix.length === 0 ? (
+                <motion.div
+                  key="empty-featured"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="bg-white rounded-3xl p-8 sm:p-10 text-center border border-pink-200 shadow-card space-y-2"
+                >
+                  <p className="text-base font-bold text-[#6A1B4D]">
+                    Próximamente nuevos artículos en nuestro catálogo en línea
+                  </p>
+                  <p className="text-xs text-gray-500 max-w-md mx-auto">
+                    Estamos subiendo fotografías reales de nuestros productos en tienda. También
+                    puedes consultar disponibilidad directa por WhatsApp.
+                  </p>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="featured-six"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.25 }}
+                  className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 sm:gap-4"
+                >
+                  {featuredSix.map((product, idx) => (
+                    <ProductCard key={product.id} product={product} index={idx} />
+                  ))}
+                </motion.div>
+              )
             ) : filteredProducts.length === 0 ? (
               <motion.div
                 key="empty-results"

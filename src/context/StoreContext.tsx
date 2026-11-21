@@ -24,6 +24,7 @@ import {
   isFirebaseConfigured,
   updateGalleryPhotoInFirestore,
   updateOrderStatusInFirestore,
+  updateProductFieldsInFirestore,
   upsertBannerInFirestore,
   upsertCategoryInFirestore,
   upsertProductInFirestore,
@@ -91,6 +92,11 @@ interface StoreContextType {
     orderData: Omit<CustomerOrder, "id" | "createdAt" | "status">
   ) => Promise<CustomerOrder>;
   upsertProduct: (product: Product) => Promise<void>;
+  quickUpdateProduct: (
+    productId: string,
+    fields: Partial<{ price: number | null; stock: number | null; active: boolean }>,
+    successMessage?: string
+  ) => Promise<void>;
   deleteProduct: (productId: string) => Promise<void>;
   upsertCategory: (category: Category) => Promise<void>;
   updateGalleryPhoto: (photo: StoreGalleryPhoto, displayOrder?: number) => Promise<void>;
@@ -107,7 +113,9 @@ const CLIENT_SESSION_KEYS = {
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
-  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
+  const [products, setProducts] = useState<Product[]>(
+    isFirebaseConfigured ? [] : INITIAL_PRODUCTS
+  );
   const [storeGallery, setStoreGallery] = useState<StoreGalleryPhoto[]>(INITIAL_STORE_GALLERY);
   const [banners, setBanners] = useState<StoreBanner[]>(INITIAL_BANNERS);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -195,7 +203,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       try {
         const data = await fetchStoreDataFromFirestore(includeAdminData);
         if (data.categories.length > 0) setCategories(data.categories);
-        if (data.products.length > 0) setProducts(data.products);
+        setProducts(data.products.filter((p) => !p.isDemo));
         if (data.storeGallery.length > 0) setStoreGallery(data.storeGallery);
         if (data.banners.length > 0) setBanners(data.banners);
         if (includeAdminData) setOrders(data.orders);
@@ -413,6 +421,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const upsertProduct = async (product: Product): Promise<void> => {
     const sanitizedProduct: Product = {
       ...product,
+      isDemo: false,
       images: (product.images || []).slice(0, 5),
     };
 
@@ -435,7 +444,37 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         ? prev.map((p) => (p.id === sanitizedProduct.id ? sanitizedProduct : p))
         : [sanitizedProduct, ...prev];
     });
-    showToast(`Producto "${sanitizedProduct.name}" publicado y sincronizado.`, "success");
+    showToast(
+      sanitizedProduct.active
+        ? `Producto "${sanitizedProduct.name}" publicado en el catálogo.`
+        : `Borrador "${sanitizedProduct.name}" guardado.`,
+      "success"
+    );
+  };
+
+  const quickUpdateProduct = async (
+    productId: string,
+    fields: Partial<{ price: number | null; stock: number | null; active: boolean }>,
+    successMessage?: string
+  ): Promise<void> => {
+    if (isFirebaseConfigured) {
+      await updateProductFieldsInFirestore(productId, fields);
+    } else if (supabase && isSupabaseConfigured) {
+      const { error } = await supabase
+        .from("products")
+        .update({ ...fields, updated_at: new Date().toISOString() })
+        .eq("id", productId);
+      if (error) {
+        throw new Error(`No se pudo actualizar el producto: ${error.message}`);
+      }
+    } else {
+      throw new Error("La base de datos administrativa no está configurada aún.");
+    }
+
+    setProducts((prev) =>
+      prev.map((p) => (p.id === productId ? { ...p, ...fields, isDemo: false } : p))
+    );
+    showToast(successMessage || "Producto actualizado correctamente.", "success");
   };
 
   const deleteProduct = async (productId: string): Promise<void> => {
@@ -595,6 +634,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           refreshStoreData,
           createOrder,
           upsertProduct,
+          quickUpdateProduct,
           deleteProduct,
           upsertCategory,
           updateGalleryPhoto,

@@ -12,13 +12,18 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Verifica si el usuario autenticado figura en `admin_users/{uid}` o `admin_users/{email}`
+    // Verifica si el usuario autenticado figura en `admin_users/{uid}` o `admin_users/{email}` con `active == true`
+    function isAdminDocActive(docId) {
+      return exists(/databases/$(database)/documents/admin_users/$(docId)) &&
+        get(/databases/$(database)/documents/admin_users/$(docId)).data.active == true;
+    }
+
     function isAdmin() {
       return request.auth != null && (
-        exists(/databases/$(database)/documents/admin_users/$(request.auth.uid)) ||
+        isAdminDocActive(request.auth.uid) ||
         (
           request.auth.token.email != null &&
-          exists(/databases/$(database)/documents/admin_users/$(request.auth.token.email.lower()))
+          isAdminDocActive(request.auth.token.email.lower())
         )
       );
     }
@@ -78,7 +83,10 @@ service cloud.firestore {
         && request.resource.data.customer_name is string
         && request.resource.data.customer_name.size() > 0
         && request.resource.data.customer_phone is string
-        && request.resource.data.customer_phone.size() >= 7;
+        && request.resource.data.customer_phone.size() >= 7
+        && request.resource.data.total is number
+        && request.resource.data.total >= 0
+        && request.resource.data.status in ['pendiente', 'pendiente_whatsapp'];
       allow read, update, delete: if isAdmin();
     }
   }

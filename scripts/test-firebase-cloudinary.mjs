@@ -112,7 +112,36 @@ async function runStaticSecurityChecks() {
       adminPage.includes("MAX_PRODUCT_IMAGES") &&
       adminPage.includes("Confirma manualmente el precio real") &&
       adminPage.includes("Confirma manualmente las existencias disponibles"),
-    "Panel /admin permite cámara móvil (hasta 5 fotos) y exige confirmación manual de precio y existencias"
+    "Panel /admin conserva formulario avanzado (hasta 5 fotos) con confirmación manual de precio y existencias"
+  );
+
+  const quickModal = readFile("src/components/QuickPublishModal.tsx");
+  const imageUtils = readFile("src/lib/imageUtils.ts");
+  const storeContext = readFile("src/context/StoreContext.tsx");
+
+  assert(
+    quickModal.includes("Publicación rápida") &&
+      quickModal.includes('accept="image/*"') &&
+      quickModal.includes('capture="environment"') &&
+      quickModal.includes("Tomar otra foto") &&
+      quickModal.includes("Subir desde galería") &&
+      quickModal.includes("Guardar como borrador") &&
+      quickModal.includes("submittingRef.current") &&
+      quickModal.includes("deleteImageFromCloudinary"),
+    "QuickPublishModal implementa Publicación rápida móvil, cámara/galería, borrador, anti-doble-clic y rollback seguro"
+  );
+  assert(
+    imageUtils.includes("imageOrientation") &&
+      imageUtils.includes("image/webp") &&
+      imageUtils.includes("optimizeImageWithPreview"),
+    "imageUtils corrige orientación EXIF y optimiza fotografías a WebP"
+  );
+  assert(
+    adminPage.includes("Precio rápido") &&
+      adminPage.includes("Marcar agotado") &&
+      adminPage.includes("QuickPublishModal") &&
+      storeContext.includes("data.products.filter((p) => !p.isDemo)"),
+    "Panel /admin incluye edición rápida de precio, botón Marcar agotado y excluye datos demo como productos reales"
   );
   assert(
     fs.existsSync(path.join(rootDir, "src/lib/supabase.ts")) &&
@@ -149,6 +178,27 @@ async function runLiveIntegrationChecks(env) {
       anonWriteRes.status === 401 || anonWriteRes.status === 403,
       `Firestore rechaza escritura anónima en admin_users (HTTP ${anonWriteRes.status})`
     );
+
+    const anonProductWriteRes = await fetch(
+      `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
+        firebaseProjectId
+      )}/databases/(default)/documents/products/test-intruder-prod`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fields: {
+            name: { stringValue: "Producto intruso" },
+            price: { doubleValue: 10 },
+            active: { booleanValue: true },
+          },
+        }),
+      }
+    );
+    assert(
+      anonProductWriteRes.status === 401 || anonProductWriteRes.status === 403,
+      `Firestore rechaza escritura anónima en products (HTTP ${anonProductWriteRes.status})`
+    );
   }
 
   if (!cloudName || !cloudKey || !cloudSecret) {
@@ -179,11 +229,25 @@ async function runLiveIntegrationChecks(env) {
     );
     const upJson = await upRes.json();
     const uploadedOk = assert(
-      upRes.ok && Boolean(upJson.secure_url) && Boolean(upJson.public_id),
-      "Cloudinary acepta subida firmada SHA-1 desde servidor"
+      upRes.ok &&
+        Boolean(upJson.secure_url) &&
+        Boolean(upJson.public_id) &&
+        String(upJson.public_id).startsWith("los-angeles-store/"),
+      `Cloudinary acepta subida firmada SHA-1 en carpeta los-angeles-store/ (${upJson.public_id || "sin public_id"})`
     );
 
     if (uploadedOk) {
+      const optimizedUrl = String(upJson.secure_url).replace(
+        "/image/upload/",
+        "/image/upload/f_auto,q_auto/"
+      );
+      const deliveryRes = await fetch(optimizedUrl, { method: "HEAD" });
+      assert(
+        deliveryRes.ok &&
+          String(deliveryRes.headers.get("content-type") || "").startsWith("image/"),
+        `Cloudinary entrega imagen optimizada (f_auto,q_auto) correctamente (HTTP ${deliveryRes.status})`
+      );
+
       const delTs = Math.floor(Date.now() / 1000);
       const delSig = crypto
         .createHash("sha1")

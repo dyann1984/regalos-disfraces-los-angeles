@@ -111,9 +111,8 @@ export default function ProductCard({
   return (
     <motion.article
       layout
-      initial={{ opacity: 0, y: 26, scale: 0.94 }}
-      whileInView={{ opacity: 1, y: 0, scale: 1 }}
-      viewport={{ once: true, margin: "-25px" }}
+      initial={{ opacity: 0, y: 14, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
       whileHover={!shouldReduceMotion && canHover3D ? { y: -9, scale: 1.02 } : undefined}
       onMouseMove={handleMouseMove}
       onMouseEnter={handleMouseEnter}

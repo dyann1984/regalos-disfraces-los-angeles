@@ -24,6 +24,7 @@ import {
   query,
   setDoc,
   updateDoc,
+  where,
   writeBatch,
   Firestore,
 } from "firebase/firestore";
@@ -390,18 +391,47 @@ export async function fetchStoreDataFromFirestore(includeAdminData = false): Pro
     throw new Error("Firestore no está configurado.");
   }
 
-  const [catSnap, prodSnap, galSnap, banSnap] = await Promise.all([
-    getDocs(query(collection(firestoreDb, "categories"), orderBy("display_order", "asc"))),
-    getDocs(collection(firestoreDb, "products")),
+  const categoriesQuery = includeAdminData
+    ? query(collection(firestoreDb, "categories"), orderBy("display_order", "asc"))
+    : query(collection(firestoreDb, "categories"), where("active", "==", true));
+
+  const productsQuery = includeAdminData
+    ? collection(firestoreDb, "products")
+    : query(collection(firestoreDb, "products"), where("active", "==", true));
+
+  const bannersQuery = includeAdminData
+    ? query(collection(firestoreDb, "store_banners"), orderBy("display_order", "asc"))
+    : query(collection(firestoreDb, "store_banners"), where("active", "==", true));
+
+  const [catRes, prodRes, galRes, banRes] = await Promise.allSettled([
+    getDocs(categoriesQuery),
+    getDocs(productsQuery),
     getDocs(query(collection(firestoreDb, "store_gallery"), orderBy("display_order", "asc"))),
-    getDocs(query(collection(firestoreDb, "store_banners"), orderBy("display_order", "asc"))),
+    getDocs(bannersQuery),
   ]);
 
-  const categories = catSnap.docs.map((d) =>
-    mapRowToCategory({ id: d.id, ...d.data() } as Record<string, unknown>)
-  );
+  if (prodRes.status === "rejected") {
+    console.error("[Firestore] Error leyendo products:", prodRes.reason);
+    throw prodRes.reason;
+  }
+  if (catRes.status === "rejected") {
+    console.error("[Firestore] Error leyendo categories (colección auxiliar):", catRes.reason);
+  }
+  if (galRes.status === "rejected") {
+    console.error("[Firestore] Error leyendo store_gallery (colección auxiliar):", galRes.reason);
+  }
+  if (banRes.status === "rejected") {
+    console.error("[Firestore] Error leyendo store_banners (colección auxiliar):", banRes.reason);
+  }
 
-  const productsRaw = prodSnap.docs.map((d) => ({
+  const categories =
+    catRes.status === "fulfilled"
+      ? catRes.value.docs
+          .map((d) => mapRowToCategory({ id: d.id, ...d.data() } as Record<string, unknown>))
+          .sort((a, b) => a.order - b.order)
+      : [];
+
+  const productsRaw = prodRes.value.docs.map((d) => ({
     id: d.id,
     ...d.data(),
   })) as Record<string, unknown>[];
@@ -414,25 +444,35 @@ export async function fetchStoreDataFromFirestore(includeAdminData = false): Pro
 
   const products = productsRaw.map(mapRowToProduct);
 
-  const storeGallery = galSnap.docs.map((d) =>
-    mapRowToGalleryPhoto({ id: d.id, ...d.data() } as Record<string, unknown>)
-  );
+  const storeGallery =
+    galRes.status === "fulfilled"
+      ? galRes.value.docs.map((d) =>
+          mapRowToGalleryPhoto({ id: d.id, ...d.data() } as Record<string, unknown>)
+        )
+      : [];
 
-  const banners = banSnap.docs.map((d) =>
-    mapRowToBanner({ id: d.id, ...d.data() } as Record<string, unknown>)
-  );
+  const banners =
+    banRes.status === "fulfilled"
+      ? banRes.value.docs
+          .map((d) => mapRowToBanner({ id: d.id, ...d.data() } as Record<string, unknown>))
+          .sort((a, b) => a.order - b.order)
+      : [];
 
   let orders: CustomerOrder[] = [];
   if (includeAdminData) {
-    const ordSnap = await getDocs(collection(firestoreDb, "orders"));
-    const ordersRaw = ordSnap.docs.map((d) => ({
-      id: d.id,
-      ...d.data(),
-    })) as Record<string, unknown>[];
-    ordersRaw.sort((a, b) =>
-      String(b.created_at || "").localeCompare(String(a.created_at || ""))
-    );
-    orders = ordersRaw.map(mapRowToOrder);
+    try {
+      const ordSnap = await getDocs(collection(firestoreDb, "orders"));
+      const ordersRaw = ordSnap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })) as Record<string, unknown>[];
+      ordersRaw.sort((a, b) =>
+        String(b.created_at || "").localeCompare(String(a.created_at || ""))
+      );
+      orders = ordersRaw.map(mapRowToOrder);
+    } catch (err) {
+      console.error("[Firestore] Error leyendo orders:", err);
+    }
   }
 
   return { categories, products, storeGallery, banners, orders };
@@ -440,15 +480,35 @@ export async function fetchStoreDataFromFirestore(includeAdminData = false): Pro
 
 export async function upsertProductInFirestore(product: Product): Promise<void> {
   if (!firestoreDb) throw new Error("Cloud Firestore no está configurado.");
-  const row = mapProductToRow(product);
+  const row = mapProductToRow({ ...product, isDemo: false });
+  const refDoc = doc(firestoreDb, "products", product.id);
+  const existing = await getDoc(refDoc).catch(() => null);
+  const createdAt =
+    existing && existing.exists() && typeof existing.data()?.created_at === "string"
+      ? String(existing.data()?.created_at)
+      : new Date().toISOString();
+
   await setDoc(
-    doc(firestoreDb, "products", product.id),
+    refDoc,
     {
       ...row,
-      created_at: new Date().toISOString(),
+      is_demo: false,
+      created_at: createdAt,
     },
     { merge: true }
   );
+}
+
+export async function updateProductFieldsInFirestore(
+  productId: string,
+  fields: Partial<{ price: number | null; stock: number | null; active: boolean }>
+): Promise<void> {
+  if (!firestoreDb) throw new Error("Cloud Firestore no está configurado.");
+  await updateDoc(doc(firestoreDb, "products", productId), {
+    ...fields,
+    is_demo: false,
+    updated_at: new Date().toISOString(),
+  });
 }
 
 export async function deleteProductFromFirestore(productId: string): Promise<void> {

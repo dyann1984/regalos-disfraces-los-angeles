@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Lock,
@@ -24,7 +24,14 @@ import {
   X,
   AlertTriangle,
   LogOut,
+  Zap,
+  Tag,
+  Ban,
+  RotateCcw,
+  AlertCircle,
+  SlidersHorizontal,
 } from "lucide-react";
+import QuickPublishModal from "@/components/QuickPublishModal";
 import { useStore } from "@/context/StoreContext";
 import { formatMXN } from "@/lib/whatsapp";
 import {
@@ -80,12 +87,15 @@ export default function AdminPage() {
     orders,
     refreshStoreData,
     upsertProduct,
+    quickUpdateProduct,
     deleteProduct,
     upsertCategory,
     updateGalleryPhoto,
     upsertBanner,
     updateOrderStatus,
     showToast,
+    toastMessage,
+    toastVariant,
   } = useStore();
 
   // Estado de autenticación real con Firebase Auth (o Supabase Auth como respaldo)
@@ -109,10 +119,18 @@ export default function AdminPage() {
     "products" | "categories" | "banners_gallery" | "orders" | "system"
   >("products");
 
-  // Estados de edición manual
+  // Estado del modo "Publicación rápida" y acciones rápidas por tarjeta
+  const [quickPublishOpen, setQuickPublishOpen] = useState(false);
+  const [quickPriceProductId, setQuickPriceProductId] = useState<string | null>(null);
+  const [quickPriceValue, setQuickPriceValue] = useState("");
+  const [quickActionBusyId, setQuickActionBusyId] = useState<string | null>(null);
+  const quickActionBusyRef = useRef(false);
+
+  // Estados de edición manual (Formulario avanzado)
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [savingProduct, setSavingProduct] = useState(false);
+  const savingProductRef = useRef(false);
 
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [savingCategory, setSavingCategory] = useState(false);
@@ -440,10 +458,16 @@ export default function AdminPage() {
       return;
     }
 
+    if (savingProductRef.current) return;
+    savingProductRef.current = true;
     setSavingProduct(true);
     try {
 
       const cleanImages = (editingProduct.images || []).filter(Boolean).slice(0, 5);
+      if (cleanImages.length === 0) {
+        showToast("Sube al menos una fotografía real del producto antes de guardar.", "error");
+        return;
+      }
 
       const newProd: Product = {
         id: editingProduct.id || `prod-${Date.now()}`,
@@ -463,8 +487,7 @@ export default function AdminPage() {
         price: numericPrice,
         promoPrice: editingProduct.promoPrice ? Number(editingProduct.promoPrice) : undefined,
         categorySlug: (editingProduct.categorySlug as CategorySlug) || "regalos",
-        images:
-          cleanImages.length > 0 ? cleanImages : ["/images/products/prod-box.jpg"],
+        images: cleanImages,
         stock: numericStock,
         isFeatured: Boolean(editingProduct.isFeatured ?? true),
         isSpecialOffer: Boolean(editingProduct.isSpecialOffer),
@@ -481,20 +504,117 @@ export default function AdminPage() {
       );
     } finally {
       setSavingProduct(false);
+      savingProductRef.current = false;
     }
   };
 
+  const openAdvancedProductForm = () => {
+    setQuickPublishOpen(false);
+    setActiveTab("products");
+    setEditingProduct({
+      name: "",
+      subtitle: "(Disponible en tienda)",
+      description: "",
+      price: null,
+      stock: 1,
+      categorySlug: categories[0]?.slug || "peluches",
+      isFeatured: true,
+      isSpecialOffer: false,
+      active: true,
+      images: [],
+    });
+  };
+
   const handleToggleProductVisibility = async (prod: Product) => {
+    if (quickActionBusyRef.current) return;
+    if (!prod.active && (prod.price === null || prod.price <= 0)) {
+      showToast(
+        "Asigna un precio válido en MXN antes de publicar este borrador.",
+        "error"
+      );
+      setQuickPriceProductId(prod.id);
+      setQuickPriceValue(prod.price !== null ? String(prod.price) : "");
+      return;
+    }
+    quickActionBusyRef.current = true;
+    setQuickActionBusyId(prod.id);
     try {
-      await upsertProduct({
-        ...prod,
-        active: !prod.active,
-      });
+      await quickUpdateProduct(
+        prod.id,
+        { active: !prod.active },
+        !prod.active
+          ? `"${prod.name}" publicado en el catálogo.`
+          : `"${prod.name}" guardado como borrador oculto.`
+      );
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : "Error al cambiar visibilidad.",
         "error"
       );
+    } finally {
+      setQuickActionBusyId(null);
+      quickActionBusyRef.current = false;
+    }
+  };
+
+  const handleStartQuickPriceEdit = (prod: Product) => {
+    setQuickPriceProductId(prod.id);
+    setQuickPriceValue(prod.price !== null && prod.price !== undefined ? String(prod.price) : "");
+  };
+
+  const handleSaveQuickPrice = async (prod: Product) => {
+    if (quickActionBusyRef.current) return;
+    const trimmed = quickPriceValue.trim();
+    const numeric = Number(trimmed);
+    if (!trimmed || Number.isNaN(numeric) || numeric <= 0) {
+      showToast("Ingresa un precio válido mayor a $0 MXN.", "error");
+      return;
+    }
+
+    quickActionBusyRef.current = true;
+    setQuickActionBusyId(prod.id);
+    try {
+      await quickUpdateProduct(
+        prod.id,
+        { price: numeric },
+        `Precio de "${prod.name}" actualizado a ${formatMXN(numeric)}.`
+      );
+      setQuickPriceProductId(null);
+      setQuickPriceValue("");
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "No se pudo actualizar el precio.",
+        "error"
+      );
+    } finally {
+      setQuickActionBusyId(null);
+      quickActionBusyRef.current = false;
+    }
+  };
+
+  const handleToggleOutOfStock = async (prod: Product) => {
+    if (quickActionBusyRef.current) return;
+    const isCurrentlyOut = prod.stock !== null && prod.stock <= 0;
+    const nextStock = isCurrentlyOut ? 1 : 0;
+
+    quickActionBusyRef.current = true;
+    setQuickActionBusyId(prod.id);
+    try {
+      await quickUpdateProduct(
+        prod.id,
+        { stock: nextStock },
+        nextStock === 0
+          ? `"${prod.name}" marcado como agotado.`
+          : `"${prod.name}" disponible nuevamente (1 ud.).`
+      );
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "No se pudo actualizar la existencia.",
+        "error"
+      );
+    } finally {
+      setQuickActionBusyId(null);
+      quickActionBusyRef.current = false;
     }
   };
 
@@ -555,13 +675,17 @@ export default function AdminPage() {
     setSelectedAiItem(null);
 
     try {
+      const freshToken =
+        (isFirebaseConfigured
+          ? await firebaseAuth?.currentUser?.getIdToken()
+          : null) || accessToken;
       const { base64, mimeType } = await compressImageForAI(fileToAnalyze);
 
       const res = await fetch("/api/admin/ai-product", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          ...(freshToken ? { Authorization: `Bearer ${freshToken}` } : {}),
         },
         body: JSON.stringify({
           imageBase64: base64,
@@ -878,8 +1002,34 @@ export default function AdminPage() {
   // ============================================================================
   // PANEL PRINCIPAL DE LA ADMINISTRADORA (OPTIMIZADO PARA CELULAR Y ESCRITORIO)
   // ============================================================================
+  const realProducts = products.filter((p) => !p.isDemo);
+
   return (
     <div className="min-h-screen bg-[#FDF2F7]/70 pb-16">
+      {/* Notificación flotante de éxito / error en /admin */}
+      {toastMessage && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed top-16 right-3 left-3 sm:left-auto sm:right-4 z-[60] max-w-md text-white text-xs sm:text-sm font-semibold px-4 py-3 rounded-2xl shadow-xl border flex items-center gap-2 ${
+            toastVariant === "error"
+              ? "bg-rose-700 border-rose-400"
+              : toastVariant === "info"
+              ? "bg-[#5A2244] border-pink-300"
+              : "bg-[#6A1B4D] border-amber-300"
+          }`}
+        >
+          {toastVariant === "error" ? (
+            <AlertCircle className="w-4 h-4 text-rose-200 shrink-0" />
+          ) : toastVariant === "success" ? (
+            <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
+          ) : (
+            <Sparkles className="w-4 h-4 text-[#FDE68A] shrink-0" />
+          )}
+          <span className="flex-1">{toastMessage}</span>
+        </div>
+      )}
+
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-pink-200 px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 shadow-sm">
         <div className="flex items-center gap-3">
           <img
@@ -900,18 +1050,18 @@ export default function AdminPage() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={openAiAssistant}
+            onClick={() => setQuickPublishOpen(true)}
             className="btn-shimmer inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-full bg-gradient-to-r from-[#E91E63] via-[#D81B60] to-[#AD1457] text-white text-xs font-bold shadow-md"
           >
-            <Sparkles className="w-3.5 h-3.5 text-[#FDE68A]" />
-            <span>Agregar producto con IA</span>
+            <Camera className="w-3.5 h-3.5 text-[#FDE68A]" />
+            <span>Agregar producto</span>
           </button>
 
           <Link
-            href="/"
+            href="/catalogo"
             className="px-3 py-2 rounded-full border border-pink-200 bg-pink-50 text-[#6A1B4D] text-xs font-bold hover:bg-pink-100 transition"
           >
-            Ver tienda
+            Ver catálogo
           </Link>
 
           <button
@@ -939,7 +1089,7 @@ export default function AdminPage() {
             }`}
           >
             <Package className="w-4 h-4" />
-            <span>Productos ({products.length})</span>
+            <span>Productos ({realProducts.length})</span>
           </button>
 
           <button
@@ -1003,42 +1153,37 @@ export default function AdminPage() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-pink-200 shadow-sm">
               <div>
                 <h2 className="text-sm font-bold text-[#6A1B4D]">
-                  Catálogo e Inventario Real ({products.length} productos)
+                  Catálogo e Inventario Real ({realProducts.length} productos)
                 </h2>
                 <p className="text-xs text-gray-500">
-                  Toma hasta 5 fotografías por artículo con tu celular, usa IA para describirlo o
-                  regístralo manualmente.
+                  Usa <strong>Publicación rápida</strong> desde tu celular (foto + nombre + precio
+                  MXN) o el formulario avanzado cuando necesites más detalles.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={openAiAssistant}
-                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-gradient-to-r from-[#E91E63] to-[#AD1457] text-white text-xs font-bold shadow"
+                  onClick={() => setQuickPublishOpen(true)}
+                  className="btn-shimmer inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-gradient-to-r from-[#E91E63] via-[#D81B60] to-[#AD1457] text-white text-xs font-extrabold shadow-md"
                 >
-                  <Sparkles className="w-4 h-4 text-[#FDE68A]" />
-                  <span>Agregar producto con IA</span>
+                  <Zap className="w-4 h-4 text-[#FDE68A]" />
+                  <span>Agregar producto (Publicación rápida)</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() =>
-                    setEditingProduct({
-                      name: "",
-                      subtitle: "(Disponible en tienda)",
-                      description: "",
-                      price: null,
-                      stock: null,
-                      categorySlug: "peluches",
-                      isFeatured: true,
-                      isSpecialOffer: false,
-                      active: true,
-                      images: [],
-                    })
-                  }
-                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-pink-50 border border-pink-200 text-[#6A1B4D] text-xs font-bold hover:bg-pink-100"
+                  onClick={openAiAssistant}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-full bg-[#6A1B4D] text-white text-xs font-bold shadow-sm hover:brightness-110"
                 >
-                  <Plus className="w-4 h-4 text-[#D81B60]" />
-                  <span>Registro Manual</span>
+                  <Sparkles className="w-3.5 h-3.5 text-[#FDE68A]" />
+                  <span>Asistente IA completo</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={openAdvancedProductForm}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-full bg-pink-50 border border-pink-200 text-[#6A1B4D] text-xs font-bold hover:bg-pink-100"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-[#D81B60]" />
+                  <span>Formulario avanzado</span>
                 </button>
               </div>
             </div>
@@ -1327,102 +1472,219 @@ export default function AdminPage() {
               </form>
             )}
 
-            {/* Lista de productos adaptable a móvil y escritorio */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {products.map((prod) => (
-                <div
-                  key={prod.id}
-                  className={`bg-white rounded-2xl border p-3.5 flex flex-col justify-between gap-3 shadow-sm ${
-                    prod.active ? "border-pink-200" : "border-gray-300 opacity-75"
-                  }`}
+            {/* Lista de productos reales adaptable a móvil y escritorio */}
+            {realProducts.length === 0 ? (
+              <div className="bg-white rounded-3xl border border-pink-200 p-8 text-center shadow-sm space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-pink-50 border border-pink-200 text-[#D81B60] flex items-center justify-center mx-auto">
+                  <Camera className="w-6 h-6" />
+                </div>
+                <h3 className="text-sm sm:text-base font-extrabold text-[#6A1B4D]">
+                  Aún no hay productos reales publicados
+                </h3>
+                <p className="text-xs text-gray-500 max-w-md mx-auto">
+                  Los datos de demostración no se muestran como inventario real. Presiona el botón
+                  para tomar una foto desde tu celular y publicar tu primer artículo en segundos.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setQuickPublishOpen(true)}
+                  className="btn-shimmer inline-flex items-center gap-2 px-5 py-3 rounded-full bg-gradient-to-r from-[#E91E63] to-[#AD1457] text-white text-xs sm:text-sm font-extrabold shadow-md"
                 >
-                  <div className="flex gap-3">
-                    <img
-                      src={prod.images[0]}
-                      alt={prod.name}
-                      className="w-16 h-16 rounded-xl object-cover border border-pink-100 shrink-0"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="text-[10px] font-bold uppercase text-[#D81B60]">
-                          {prod.categorySlug}
-                        </span>
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            prod.active
-                              ? "bg-emerald-50 text-emerald-700"
-                              : "bg-gray-200 text-gray-700"
+                  <Zap className="w-4 h-4 text-[#FDE68A]" />
+                  <span>Agregar primer producto (Publicación rápida)</span>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                {realProducts.map((prod) => {
+                  const isOutOfStock = prod.stock !== null && prod.stock <= 0;
+                  const isBusyCard = quickActionBusyId === prod.id;
+                  const isEditingQuickPrice = quickPriceProductId === prod.id;
+
+                  return (
+                    <div
+                      key={prod.id}
+                      className={`bg-white rounded-2xl border p-3.5 flex flex-col justify-between gap-3 shadow-sm ${
+                        !prod.active
+                          ? "border-amber-300 bg-amber-50/20"
+                          : isOutOfStock
+                          ? "border-rose-200"
+                          : "border-pink-200"
+                      }`}
+                    >
+                      <div className="flex gap-3">
+                        <img
+                          src={prod.images[0]}
+                          alt={prod.name}
+                          className="w-16 h-16 rounded-xl object-cover border border-pink-100 shrink-0 bg-pink-50"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-1 flex-wrap">
+                            <span className="text-[10px] font-bold uppercase text-[#D81B60]">
+                              {prod.categorySlug}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              {isOutOfStock && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700">
+                                  Agotado
+                                </span>
+                              )}
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  prod.active
+                                    ? "bg-emerald-50 text-emerald-700"
+                                    : "bg-amber-100 text-amber-800"
+                                }`}
+                              >
+                                {prod.active ? "Publicado" : "Borrador"}
+                              </span>
+                            </div>
+                          </div>
+                          <h3 className="text-xs font-bold text-gray-800 truncate mt-0.5">
+                            {prod.name}
+                          </h3>
+                          <p className="text-xs font-extrabold text-[#C2185B] mt-0.5">
+                            {prod.price !== null
+                              ? formatMXN(prod.promoPrice ?? prod.price)
+                              : "Precio pendiente"}
+                          </p>
+                          <p className="text-[11px] text-gray-500">
+                            Existencias:{" "}
+                            <strong className={isOutOfStock ? "text-rose-600" : ""}>
+                              {prod.stock !== null ? `${prod.stock} uds.` : "Por confirmar"}
+                            </strong>{" "}
+                            • {prod.images.length} foto(s)
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Edición rápida del precio inline */}
+                      {isEditingQuickPrice && (
+                        <div className="flex items-center gap-1.5 bg-[#FDF2F7] p-2 rounded-xl border border-pink-200">
+                          <span className="text-xs font-extrabold text-[#D81B60] pl-1">$</span>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            step="0.01"
+                            min="0.01"
+                            value={quickPriceValue}
+                            onChange={(e) => setQuickPriceValue(e.target.value)}
+                            placeholder="Precio MXN"
+                            aria-label={`Nuevo precio en MXN para ${prod.name}`}
+                            className="flex-1 min-w-0 px-2 py-1.5 text-base sm:text-xs font-bold rounded-lg border border-pink-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#D81B60]/40"
+                          />
+                          <button
+                            type="button"
+                            disabled={isBusyCard}
+                            onClick={() => handleSaveQuickPrice(prod)}
+                            className="px-2.5 py-1.5 rounded-lg bg-[#D81B60] text-white text-[11px] font-bold disabled:opacity-50"
+                          >
+                            {isBusyCard ? "..." : "Guardar"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isBusyCard}
+                            onClick={() => {
+                              setQuickPriceProductId(null);
+                              setQuickPriceValue("");
+                            }}
+                            className="px-2 py-1.5 rounded-lg bg-white border border-gray-200 text-gray-600 text-[11px] font-bold"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Acciones rápidas en móvil: Precio rápido + Agotado */}
+                      <div className="grid grid-cols-2 gap-1.5 pt-2 border-t border-pink-100">
+                        <button
+                          type="button"
+                          disabled={isBusyCard}
+                          onClick={() => handleStartQuickPriceEdit(prod)}
+                          className="py-1.5 px-2.5 rounded-xl bg-pink-50 text-[#D81B60] text-[11px] font-bold hover:bg-pink-100 transition inline-flex items-center justify-center gap-1 disabled:opacity-50"
+                        >
+                          <Tag className="w-3.5 h-3.5 shrink-0" />
+                          <span>Precio rápido</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isBusyCard}
+                          onClick={() => handleToggleOutOfStock(prod)}
+                          className={`py-1.5 px-2.5 rounded-xl text-[11px] font-bold transition inline-flex items-center justify-center gap-1 disabled:opacity-50 ${
+                            isOutOfStock
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+                              : "bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100"
                           }`}
                         >
-                          {prod.active ? "Publicado" : "Oculto"}
-                        </span>
+                          {isOutOfStock ? (
+                            <>
+                              <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                              <span>Disponible (1)</span>
+                            </>
+                          ) : (
+                            <>
+                              <Ban className="w-3.5 h-3.5 shrink-0" />
+                              <span>Marcar agotado</span>
+                            </>
+                          )}
+                        </button>
                       </div>
-                      <h3 className="text-xs font-bold text-gray-800 truncate mt-0.5">
-                        {prod.name}
-                      </h3>
-                      <p className="text-xs font-extrabold text-[#C2185B] mt-0.5">
-                        {formatMXN(prod.promoPrice ?? prod.price)}
-                      </p>
-                      <p className="text-[11px] text-gray-500">
-                        Existencias:{" "}
-                        <strong>
-                          {prod.stock !== null ? `${prod.stock} uds.` : "Por confirmar"}
-                        </strong>{" "}
-                        • {prod.images.length} foto(s)
-                      </p>
+
+                      {/* Acciones secundarias: Formulario avanzado, Publicar/Borrador, Eliminar */}
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingProduct(prod)}
+                          className="flex-1 py-1.5 px-2.5 rounded-xl border border-pink-200 text-[#6A1B4D] text-[11px] font-bold hover:bg-pink-50 transition"
+                        >
+                          Edición avanzada
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isBusyCard}
+                          onClick={() => handleToggleProductVisibility(prod)}
+                          className="py-1.5 px-2.5 rounded-xl border border-pink-200 text-[#6A1B4D] text-[11px] font-semibold hover:bg-pink-50 inline-flex items-center gap-1 disabled:opacity-50"
+                          title={prod.active ? "Pasar a borrador oculto" : "Publicar en catálogo"}
+                        >
+                          {prod.active ? (
+                            <>
+                              <EyeOff className="w-3.5 h-3.5" />
+                              <span>Ocultar</span>
+                            </>
+                          ) : (
+                            <>
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>Publicar</span>
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                `¿Deseas eliminar permanentemente "${prod.name}" del catálogo?`
+                              )
+                            ) {
+                              deleteProduct(prod.id).catch((err) =>
+                                showToast(err.message, "error")
+                              );
+                            }
+                          }}
+                          className="p-1.5 rounded-xl text-gray-400 hover:text-rose-600 hover:bg-rose-50"
+                          aria-label="Eliminar producto"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-pink-100">
-                    <button
-                      type="button"
-                      onClick={() => setEditingProduct(prod)}
-                      className="flex-1 py-1.5 px-3 rounded-xl bg-pink-50 text-[#D81B60] text-xs font-bold hover:bg-pink-100 transition"
-                    >
-                      Editar / Precio
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleToggleProductVisibility(prod)}
-                      className="py-1.5 px-2.5 rounded-xl border border-pink-200 text-[#6A1B4D] text-xs font-semibold hover:bg-pink-50 inline-flex items-center gap-1"
-                      title={prod.active ? "Ocultar del catálogo" : "Publicar en catálogo"}
-                    >
-                      {prod.active ? (
-                        <>
-                          <EyeOff className="w-3.5 h-3.5" />
-                          <span>Ocultar</span>
-                        </>
-                      ) : (
-                        <>
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>Publicar</span>
-                        </>
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            `¿Deseas eliminar permanentemente "${prod.name}" del catálogo?`
-                          )
-                        ) {
-                          deleteProduct(prod.id).catch((err) =>
-                            showToast(err.message, "error")
-                          );
-                        }
-                      }}
-                      className="p-1.5 rounded-xl text-gray-400 hover:text-rose-600 hover:bg-rose-50"
-                      aria-label="Eliminar producto"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -1921,6 +2183,20 @@ export default function AdminPage() {
           </div>
         )}
       </main>
+
+      {/* =====================================================================
+          MODAL: MODO "PUBLICACIÓN RÁPIDA" (OPTIMIZADO PARA CELULAR ANDROID / IPHONE)
+         ===================================================================== */}
+      <QuickPublishModal
+        open={quickPublishOpen}
+        categories={categories}
+        aiConfigured={serverStatus?.aiConfigured ?? true}
+        onClose={() => setQuickPublishOpen(false)}
+        onUploadPhoto={(file) => uploadAdminImageFile(file, "products")}
+        onSaveProduct={upsertProduct}
+        onSwitchToAdvanced={openAdvancedProductForm}
+        onShowToast={showToast}
+      />
 
       {/* =====================================================================
           MODAL: ASISTENTE "AGREGAR PRODUCTO CON IA" (OPTIMIZADO PARA CELULAR)
