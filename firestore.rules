@@ -90,21 +90,35 @@ service cloud.firestore {
       allow read, update, delete: if isAdmin();
     }
 
-    // 7. Métricas anónimas agregadas (solo contadores numéricos de clics; cero datos personales)
+    // 7. Métricas anónimas agregadas (solo incrementos estrictos de +1; cero sobrescritura ni datos personales)
+    function isValidMetricCreate(field) {
+      return request.resource.data.keys().hasOnly([field, 'updated_at'])
+        && request.resource.data[field] is int
+        && request.resource.data[field] == 1
+        && request.resource.data.updated_at is string;
+    }
+
+    function isValidMetricIncrement(field) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([field, 'updated_at'])
+        && request.resource.data[field] is int
+        && request.resource.data[field] == (field in resource.data ? resource.data[field] : 0) + 1
+        && request.resource.data.updated_at is string;
+    }
+
     match /store_metrics/{metricId} {
       allow read: if isAdmin();
-      allow create, update: if metricId == 'public_clicks'
-        && request.resource.data.keys().hasOnly([
-          'catalog_clicks',
-          'whatsapp_clicks',
-          'share_clicks',
-          'qr_downloads',
-          'updated_at'
-        ])
-        && (!('catalog_clicks' in request.resource.data) || (request.resource.data.catalog_clicks is int && request.resource.data.catalog_clicks >= 0))
-        && (!('whatsapp_clicks' in request.resource.data) || (request.resource.data.whatsapp_clicks is int && request.resource.data.whatsapp_clicks >= 0))
-        && (!('share_clicks' in request.resource.data) || (request.resource.data.share_clicks is int && request.resource.data.share_clicks >= 0))
-        && (!('qr_downloads' in request.resource.data) || (request.resource.data.qr_downloads is int && request.resource.data.qr_downloads >= 0));
+      allow create: if metricId == 'public_clicks' && (
+        isValidMetricCreate('catalog_clicks') ||
+        isValidMetricCreate('whatsapp_clicks') ||
+        isValidMetricCreate('share_clicks') ||
+        isValidMetricCreate('qr_downloads')
+      );
+      allow update: if metricId == 'public_clicks' && (
+        isValidMetricIncrement('catalog_clicks') ||
+        isValidMetricIncrement('whatsapp_clicks') ||
+        isValidMetricIncrement('share_clicks') ||
+        isValidMetricIncrement('qr_downloads')
+      );
       allow delete: if false;
     }
   }

@@ -22,14 +22,28 @@ const FIELD_MAP: Record<StoreMetricEvent, keyof Omit<StorePublicMetrics, "update
   qr_download: "qr_downloads",
 };
 
+const COOLDOWN_MS = 10_000;
+const MAX_EVENTS_PER_SESSION = 20;
+const lastEventAt: Partial<Record<StoreMetricEvent, number>> = {};
+let sessionEventCount = 0;
+
 /**
- * Registra únicamente contadores agregados anónimos (sin IP, sin cookies, sin datos personales).
+ * Registra únicamente contadores agregados anónimos (sin IP, sin cookies, sin datos personales)
+ * con limitación de frecuencia por sesión y validación estricta de +1 en firestore.rules.
  * Falla de forma silenciosa para nunca bloquear la experiencia de compra.
  */
 export function trackStoreEvent(event: StoreMetricEvent): void {
   if (!isFirebaseConfigured || !firestoreDb) return;
   const field = FIELD_MAP[event];
   if (!field) return;
+
+  const now = Date.now();
+  const prev = lastEventAt[event] || 0;
+  if (now - prev < COOLDOWN_MS || sessionEventCount >= MAX_EVENTS_PER_SESSION) {
+    return;
+  }
+  lastEventAt[event] = now;
+  sessionEventCount += 1;
 
   const ref = doc(firestoreDb, "store_metrics", "public_clicks");
   setDoc(
