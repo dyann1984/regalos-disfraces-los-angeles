@@ -20,6 +20,8 @@ import {
   getDirectWhatsAppUrl,
   getProductShareUrl,
 } from "@/lib/whatsapp";
+import { getOptimizedCloudinaryUrl } from "@/lib/imageUtils";
+import { trackStoreEvent } from "@/lib/metrics";
 
 const BADGE_STYLES: Record<
   NonNullable<Product["badge"]>["variant"],
@@ -142,6 +144,7 @@ export default function ProductCard({
 
   const handleShareProduct = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    trackStoreEvent("share_click");
     const url = getProductShareUrl(product);
     const priceText =
       effectivePrice !== null && effectivePrice > 0
@@ -207,9 +210,13 @@ export default function ProductCard({
           <AnimatePresence mode="wait">
             <motion.img
               key={product.images[activeImageIndex] || product.images[0]}
-              src={product.images[activeImageIndex] || product.images[0]}
+              src={getOptimizedCloudinaryUrl(
+                product.images[activeImageIndex] || product.images[0],
+                640
+              )}
               alt={`${product.name} ${product.subtitle}`}
               loading="lazy"
+              decoding="async"
               initial={{ opacity: 0.85 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0.85 }}

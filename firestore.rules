@@ -89,5 +89,23 @@ service cloud.firestore {
         && request.resource.data.status in ['pendiente', 'pendiente_whatsapp'];
       allow read, update, delete: if isAdmin();
     }
+
+    // 7. Métricas anónimas agregadas (solo contadores numéricos de clics; cero datos personales)
+    match /store_metrics/{metricId} {
+      allow read: if isAdmin();
+      allow create, update: if metricId == 'public_clicks'
+        && request.resource.data.keys().hasOnly([
+          'catalog_clicks',
+          'whatsapp_clicks',
+          'share_clicks',
+          'qr_downloads',
+          'updated_at'
+        ])
+        && (!('catalog_clicks' in request.resource.data) || (request.resource.data.catalog_clicks is int && request.resource.data.catalog_clicks >= 0))
+        && (!('whatsapp_clicks' in request.resource.data) || (request.resource.data.whatsapp_clicks is int && request.resource.data.whatsapp_clicks >= 0))
+        && (!('share_clicks' in request.resource.data) || (request.resource.data.share_clicks is int && request.resource.data.share_clicks >= 0))
+        && (!('qr_downloads' in request.resource.data) || (request.resource.data.qr_downloads is int && request.resource.data.qr_downloads >= 0));
+      allow delete: if false;
+    }
   }
 }

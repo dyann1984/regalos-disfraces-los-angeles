@@ -94,7 +94,12 @@ interface StoreContextType {
   upsertProduct: (product: Product) => Promise<void>;
   quickUpdateProduct: (
     productId: string,
-    fields: Partial<{ price: number | null; stock: number | null; active: boolean }>,
+    fields: Partial<{
+      price: number | null;
+      stock: number | null;
+      active: boolean;
+      isFeatured: boolean;
+    }>,
     successMessage?: string
   ) => Promise<void>;
   deleteProduct: (productId: string) => Promise<void>;
@@ -474,15 +479,31 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const quickUpdateProduct = async (
     productId: string,
-    fields: Partial<{ price: number | null; stock: number | null; active: boolean }>,
+    fields: Partial<{
+      price: number | null;
+      stock: number | null;
+      active: boolean;
+      isFeatured: boolean;
+    }>,
     successMessage?: string
   ): Promise<void> => {
+    const dbFields: Partial<{
+      price: number | null;
+      stock: number | null;
+      active: boolean;
+      is_featured: boolean;
+    }> = {};
+    if ("price" in fields) dbFields.price = fields.price;
+    if ("stock" in fields) dbFields.stock = fields.stock;
+    if ("active" in fields) dbFields.active = fields.active;
+    if ("isFeatured" in fields) dbFields.is_featured = fields.isFeatured;
+
     if (isFirebaseConfigured) {
-      await updateProductFieldsInFirestore(productId, fields);
+      await updateProductFieldsInFirestore(productId, dbFields);
     } else if (supabase && isSupabaseConfigured) {
       const { error } = await supabase
         .from("products")
-        .update({ ...fields, updated_at: new Date().toISOString() })
+        .update({ ...dbFields, updated_at: new Date().toISOString() })
         .eq("id", productId);
       if (error) {
         throw new Error(`No se pudo actualizar el producto: ${error.message}`);

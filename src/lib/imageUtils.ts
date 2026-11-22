@@ -231,3 +231,21 @@ export async function optimizeFileForStorage(
   URL.revokeObjectURL(result.previewUrl);
   return result.file;
 }
+
+/**
+ * Optimiza URLs de entrega de Cloudinary para dispositivos móviles con ancho máximo y calidad adaptativa
+ * (f_auto,q_auto,w_<width>,c_limit), evitando descargar archivos innecesariamente pesados en celular.
+ */
+export function getOptimizedCloudinaryUrl(url: string, maxWidth = 720): string {
+  if (!url || !url.includes("res.cloudinary.com") || !url.includes("/image/upload/")) {
+    return url;
+  }
+  const transform = `f_auto,q_auto,w_${maxWidth},c_limit`;
+  if (url.includes("/image/upload/f_auto,q_auto/")) {
+    return url.replace("/image/upload/f_auto,q_auto/", `/image/upload/${transform}/`);
+  }
+  if (/\/image\/upload\/[^/]*w_\d+/.test(url)) {
+    return url;
+  }
+  return url.replace("/image/upload/", `/image/upload/${transform}/`);
+}
