@@ -80,6 +80,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es-MX" className={poppins.variable}>
+      <head>
+        <link rel="preconnect" href="https://res.cloudinary.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://firestore.googleapis.com" crossOrigin="anonymous" />
+      </head>
       <body className="font-sans antialiased selection:bg-[#F48FB1] selection:text-[#6A1B4D]">
         <script
           type="application/ld+json"

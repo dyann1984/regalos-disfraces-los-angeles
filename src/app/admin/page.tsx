@@ -30,8 +30,12 @@ import {
   RotateCcw,
   AlertCircle,
   SlidersHorizontal,
+  Star,
+  BarChart3,
 } from "lucide-react";
 import QuickPublishModal from "@/components/QuickPublishModal";
+import CatalogQRCodeCard from "@/components/CatalogQRCodeCard";
+import { fetchStorePublicMetrics, StorePublicMetrics } from "@/lib/metrics";
 import { useStore } from "@/context/StoreContext";
 import { formatMXN } from "@/lib/whatsapp";
 import {
@@ -111,8 +115,9 @@ export default function AdminPage() {
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [authError, setAuthError] = useState("");
 
-  // Estado del servidor (solo se consulta una vez autenticada la administradora)
+  // Estado del servidor y métricas anónimas (solo para sesión administrativa autorizada)
   const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
+  const [publicMetrics, setPublicMetrics] = useState<StorePublicMetrics | null>(null);
 
   // Navegación del panel administrativo
   const [activeTab, setActiveTab] = useState<
@@ -157,12 +162,15 @@ export default function AdminPage() {
   const [aiDraftStock, setAiDraftStock] = useState("");
   const [aiPublishing, setAiPublishing] = useState(false);
 
-  // Consultar estado real del servidor únicamente para sesión administrativa autorizada
+  // Consultar estado real del servidor y métricas agregadas anónimas únicamente para administradora
   useEffect(() => {
     if (!isAuthorizedAdmin) return;
     fetch("/api/admin/status")
       .then((r) => r.json())
       .then((data: ServerStatus) => setServerStatus(data))
+      .catch(() => {});
+    fetchStorePublicMetrics()
+      .then((m) => setPublicMetrics(m))
       .catch(() => {});
   }, [isAuthorizedAdmin]);
 
@@ -620,6 +628,29 @@ export default function AdminPage() {
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : "No se pudo actualizar la existencia.",
+        "error"
+      );
+    } finally {
+      setQuickActionBusyId(null);
+      quickActionBusyRef.current = false;
+    }
+  };
+
+  const handleToggleFeatured = async (prod: Product) => {
+    if (quickActionBusyRef.current) return;
+    quickActionBusyRef.current = true;
+    setQuickActionBusyId(prod.id);
+    try {
+      await quickUpdateProduct(
+        prod.id,
+        { isFeatured: !prod.isFeatured },
+        !prod.isFeatured
+          ? `"${prod.name}" agregado a Productos Destacados en portada.`
+          : `"${prod.name}" quitado de Productos Destacados.`
+      );
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "No se pudo actualizar destacado.",
         "error"
       );
     } finally {
@@ -1613,23 +1644,40 @@ export default function AdminPage() {
                         </div>
                       )}
 
-                      {/* Acciones rápidas en móvil: Precio rápido + Agotado */}
-                      <div className="grid grid-cols-2 gap-1.5 pt-2 border-t border-pink-100">
+                      {/* Acciones rápidas en móvil: Precio rápido + Agotado + Destacado */}
+                      <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-pink-100">
                         <button
                           type="button"
                           disabled={isBusyCard}
                           onClick={() => handleStartQuickPriceEdit(prod)}
-                          className="py-1.5 px-2.5 rounded-xl bg-pink-50 text-[#D81B60] text-[11px] font-bold hover:bg-pink-100 transition inline-flex items-center justify-center gap-1 disabled:opacity-50"
+                          title="Precio rápido"
+                          aria-label="Precio rápido"
+                          className="py-1.5 px-2 rounded-xl bg-pink-50 text-[#D81B60] text-[11px] font-bold hover:bg-pink-100 transition inline-flex items-center justify-center gap-1 disabled:opacity-50"
                         >
                           <Tag className="w-3.5 h-3.5 shrink-0" />
-                          <span>Precio rápido</span>
+                          <span>Precio</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isBusyCard}
+                          onClick={() => handleToggleFeatured(prod)}
+                          title={prod.isFeatured ? "Quitar de destacados" : "Marcar como destacado en portada"}
+                          className={`py-1.5 px-2 rounded-xl text-[11px] font-bold transition inline-flex items-center justify-center gap-1 disabled:opacity-50 ${
+                            prod.isFeatured
+                              ? "bg-amber-50 text-amber-800 border border-amber-300 hover:bg-amber-100"
+                              : "bg-gray-50 text-gray-600 border border-gray-200 hover:bg-amber-50"
+                          }`}
+                        >
+                          <Star className={`w-3.5 h-3.5 shrink-0 ${prod.isFeatured ? "fill-amber-400 text-amber-500" : ""}`} />
+                          <span>{prod.isFeatured ? "Destacado" : "Destacar"}</span>
                         </button>
 
                         <button
                           type="button"
                           disabled={isBusyCard}
                           onClick={() => handleToggleOutOfStock(prod)}
-                          className={`py-1.5 px-2.5 rounded-xl text-[11px] font-bold transition inline-flex items-center justify-center gap-1 disabled:opacity-50 ${
+                          className={`py-1.5 px-2 rounded-xl text-[11px] font-bold transition inline-flex items-center justify-center gap-1 disabled:opacity-50 ${
                             isOutOfStock
                               ? "bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
                               : "bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100"
@@ -1638,7 +1686,7 @@ export default function AdminPage() {
                           {isOutOfStock ? (
                             <>
                               <RotateCcw className="w-3.5 h-3.5 shrink-0" />
-                              <span>Disponible (1)</span>
+                              <span>Reponer</span>
                             </>
                           ) : (
                             <>
@@ -1838,18 +1886,44 @@ export default function AdminPage() {
            =================================================================== */}
         {activeTab === "banners_gallery" && (
           <div className="space-y-6">
+            {/* Código QR descargable y compartir tienda desde /admin */}
+            <CatalogQRCodeCard compact onShowToast={showToast} />
+
             {/* Sección Banners Promocionales */}
             <div className="bg-white p-4 sm:p-5 rounded-3xl border border-pink-200 space-y-4">
-              <div className="flex items-center gap-2 text-[#6A1B4D]">
-                <Megaphone className="w-5 h-5 text-[#D81B60]" />
-                <div>
-                  <h2 className="text-sm font-extrabold">
-                    Banners Promocionales de Portada ({banners.length})
-                  </h2>
-                  <p className="text-xs text-gray-500">
-                    Edita los textos e imágenes del banner principal animado.
-                  </p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-[#6A1B4D]">
+                  <Megaphone className="w-5 h-5 text-[#D81B60]" />
+                  <div>
+                    <h2 className="text-sm font-extrabold">
+                      Banners Promocionales de Portada ({banners.length})
+                    </h2>
+                    <p className="text-xs text-gray-500">
+                      Edita los textos, botón, enlace, visibilidad e imágenes del banner principal.
+                    </p>
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setEditingBanner({
+                      id: `banner-${Date.now()}`,
+                      badge: "Promoción Especial",
+                      titleLine1: "Nuevas sorpresas",
+                      titleLine2: "en tienda 🎁",
+                      subtitle: "Descubre artículos nuevos listos para regalar y celebrar.",
+                      ctaText: "Ver catálogo",
+                      ctaTarget: "/catalogo",
+                      imageUrl: "/images/hero-gifts.jpg",
+                      active: true,
+                      order: banners.length + 1,
+                    })
+                  }
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-pink-50 border border-pink-200 text-[#D81B60] text-xs font-bold hover:bg-pink-100"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Nuevo banner</span>
+                </button>
               </div>
 
               {editingBanner && (
@@ -1858,6 +1932,20 @@ export default function AdminPage() {
                   className="p-4 rounded-2xl bg-[#FDF2F7] border border-[#D81B60] space-y-3"
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">
+                        Etiqueta superior (Badge)
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={editingBanner.badge}
+                        onChange={(e) =>
+                          setEditingBanner({ ...editingBanner, badge: e.target.value })
+                        }
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-pink-200 bg-white"
+                      />
+                    </div>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">
                         Título Línea 1
@@ -1886,6 +1974,43 @@ export default function AdminPage() {
                         className="w-full px-3 py-2 text-xs rounded-xl border border-pink-200 bg-white"
                       />
                     </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">
+                        Texto del botón (CTA)
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={editingBanner.ctaText}
+                        onChange={(e) =>
+                          setEditingBanner({ ...editingBanner, ctaText: e.target.value })
+                        }
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-pink-200 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">
+                        Destino del botón
+                      </label>
+                      <select
+                        value={editingBanner.ctaTarget}
+                        onChange={(e) =>
+                          setEditingBanner({ ...editingBanner, ctaTarget: e.target.value })
+                        }
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-pink-200 bg-white"
+                      >
+                        <option value="/catalogo">Catálogo completo (/catalogo)</option>
+                        <option value="/catalogo?categoria=peluches">Peluches</option>
+                        <option value="/catalogo?categoria=juguetes">Juguetes</option>
+                        <option value="/catalogo?categoria=regalos">Regalos</option>
+                        <option value="/catalogo?categoria=disfraces">Disfraces</option>
+                        <option value="/catalogo?categoria=fiestas-celebraciones">Artículos para fiestas</option>
+                        <option value="/catalogo?categoria=accesorios-otros">Accesorios</option>
+                        <option value="/#nuestra-tienda">Conoce nuestra tienda</option>
+                      </select>
+                    </div>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">
                         Fotografía del Banner
@@ -1895,7 +2020,7 @@ export default function AdminPage() {
                         <span>Cambiar imagen...</span>
                         <input
                           type="file"
-                          accept="image/jpeg,image/png,image/webp"
+                          accept="image/*"
                           className="hidden"
                           onChange={(e) =>
                             handleSingleImageUploadToStorage(e, "banners", (url) =>
@@ -1920,21 +2045,34 @@ export default function AdminPage() {
                       className="w-full px-3 py-2 text-xs rounded-xl border border-pink-200 bg-white"
                     />
                   </div>
-                  <div className="flex justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setEditingBanner(null)}
-                      className="px-4 py-1.5 rounded-full border border-gray-300 bg-white text-xs font-bold"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={savingBanner}
-                      className="px-4 py-1.5 rounded-full bg-[#D81B60] text-white text-xs font-bold"
-                    >
-                      Guardar Banner
-                    </button>
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <label className="inline-flex items-center gap-2 text-xs font-bold text-[#6A1B4D] cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editingBanner.active}
+                        onChange={(e) =>
+                          setEditingBanner({ ...editingBanner, active: e.target.checked })
+                        }
+                        className="rounded text-[#D81B60]"
+                      />
+                      <span>Banner activo (visible en portada)</span>
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingBanner(null)}
+                        className="px-4 py-1.5 rounded-full border border-gray-300 bg-white text-xs font-bold"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={savingBanner || uploadingPhotos}
+                        className="px-4 py-1.5 rounded-full bg-[#D81B60] text-white text-xs font-bold disabled:opacity-50"
+                      >
+                        {savingBanner ? "Guardando..." : "Guardar Banner"}
+                      </button>
+                    </div>
                   </div>
                 </form>
               )}
@@ -2196,6 +2334,52 @@ export default function AdminPage() {
               <p className="text-xs text-gray-700">
                 • <strong>Mercado Pago:</strong> Cobros reales desactivados preventivamente hasta
                 autorización expresa.
+              </p>
+            </div>
+
+            <div className="md:col-span-2 bg-white p-5 rounded-3xl border border-pink-200 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-[#6A1B4D] font-bold text-sm">
+                  <BarChart3 className="w-5 h-5 text-[#D81B60]" />
+                  <span>Medición Básica de Clics (Anónima — Sin Datos Personales)</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => fetchStorePublicMetrics().then(setPublicMetrics).catch(() => {})}
+                  className="text-xs font-bold text-[#D81B60] hover:underline"
+                >
+                  Actualizar
+                </button>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3.5 rounded-2xl bg-[#FDF2F7] border border-pink-100 text-center">
+                  <p className="text-2xl font-extrabold text-[#C2185B]">
+                    {publicMetrics?.catalog_clicks ?? 0}
+                  </p>
+                  <p className="text-[11px] font-bold text-[#6A1B4D]">Clics al catálogo</p>
+                </div>
+                <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-100 text-center">
+                  <p className="text-2xl font-extrabold text-emerald-700">
+                    {publicMetrics?.whatsapp_clicks ?? 0}
+                  </p>
+                  <p className="text-[11px] font-bold text-emerald-900">Clics a WhatsApp</p>
+                </div>
+                <div className="p-3.5 rounded-2xl bg-pink-50 border border-pink-100 text-center">
+                  <p className="text-2xl font-extrabold text-[#6A1B4D]">
+                    {publicMetrics?.share_clicks ?? 0}
+                  </p>
+                  <p className="text-[11px] font-bold text-[#6A1B4D]">Veces compartida</p>
+                </div>
+                <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-100 text-center">
+                  <p className="text-2xl font-extrabold text-amber-700">
+                    {publicMetrics?.qr_downloads ?? 0}
+                  </p>
+                  <p className="text-[11px] font-bold text-amber-900">Descargas de QR</p>
+                </div>
+              </div>
+              <p className="text-[11px] text-gray-500">
+                Solo almacena totales agregados anónimos en <code>store_metrics/public_clicks</code>{" "}
+                sin IP, sin cookies de rastreo y sin datos personales de visitantes.
               </p>
             </div>
           </div>

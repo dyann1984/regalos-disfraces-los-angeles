@@ -89,5 +89,37 @@ service cloud.firestore {
         && request.resource.data.status in ['pendiente', 'pendiente_whatsapp'];
       allow read, update, delete: if isAdmin();
     }
+
+    // 7. Métricas anónimas agregadas (solo incrementos estrictos de +1; cero sobrescritura ni datos personales)
+    function isValidMetricCreate(field) {
+      return request.resource.data.keys().hasOnly([field, 'updated_at'])
+        && request.resource.data[field] is int
+        && request.resource.data[field] == 1
+        && request.resource.data.updated_at is string;
+    }
+
+    function isValidMetricIncrement(field) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([field, 'updated_at'])
+        && request.resource.data[field] is int
+        && request.resource.data[field] == (field in resource.data ? resource.data[field] : 0) + 1
+        && request.resource.data.updated_at is string;
+    }
+
+    match /store_metrics/{metricId} {
+      allow read: if isAdmin();
+      allow create: if metricId == 'public_clicks' && (
+        isValidMetricCreate('catalog_clicks') ||
+        isValidMetricCreate('whatsapp_clicks') ||
+        isValidMetricCreate('share_clicks') ||
+        isValidMetricCreate('qr_downloads')
+      );
+      allow update: if metricId == 'public_clicks' && (
+        isValidMetricIncrement('catalog_clicks') ||
+        isValidMetricIncrement('whatsapp_clicks') ||
+        isValidMetricIncrement('share_clicks') ||
+        isValidMetricIncrement('qr_downloads')
+      );
+      allow delete: if false;
+    }
   }
 }

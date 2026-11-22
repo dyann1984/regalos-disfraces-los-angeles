@@ -501,7 +501,12 @@ export async function upsertProductInFirestore(product: Product): Promise<void> 
 
 export async function updateProductFieldsInFirestore(
   productId: string,
-  fields: Partial<{ price: number | null; stock: number | null; active: boolean }>
+  fields: Partial<{
+    price: number | null;
+    stock: number | null;
+    active: boolean;
+    is_featured: boolean;
+  }>
 ): Promise<void> {
   if (!firestoreDb) throw new Error("Cloud Firestore no está configurado.");
   await updateDoc(doc(firestoreDb, "products", productId), {

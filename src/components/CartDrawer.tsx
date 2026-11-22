@@ -21,6 +21,7 @@ import {
   buildQuickCartWhatsAppUrl,
   formatMXN,
 } from "@/lib/whatsapp";
+import { trackStoreEvent } from "@/lib/metrics";
 import { CustomerOrder } from "@/types/store";
 
 export default function CartDrawer() {
@@ -631,6 +632,7 @@ export default function CartDrawer() {
                       href={buildQuickCartWhatsAppUrl(cart, finalTotal, deliveryMethod)}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={() => trackStoreEvent("whatsapp_click")}
                       className="btn-shimmer w-full py-3 px-4 rounded-full bg-gradient-to-r from-[#25D366] to-[#1DA851] hover:from-[#1DA851] hover:to-[#128C7E] text-white text-xs sm:text-sm font-bold shadow-md transition flex items-center justify-center gap-2"
                     >
                       <PhoneCall className="w-4 h-4" />

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -11,6 +11,7 @@ import {
   AlertCircle,
   CheckCircle2,
   ShoppingBag,
+  Clock,
 } from "lucide-react";
 import Header from "@/components/Header";
 import HeroBanner from "@/components/HeroBanner";
@@ -20,11 +21,13 @@ import ProductModal from "@/components/ProductModal";
 import CartDrawer from "@/components/CartDrawer";
 import FavoritesDrawer from "@/components/FavoritesDrawer";
 import StoreGallerySection from "@/components/StoreGallerySection";
+import CatalogQRCodeCard from "@/components/CatalogQRCodeCard";
 import ContactSection from "@/components/ContactSection";
 import Footer from "@/components/Footer";
 import FloatingWhatsApp from "@/components/FloatingWhatsApp";
 import { BoutiqueSectionHeading, CelebrationConfetti } from "@/components/BrandDetails";
 import { useStore } from "@/context/StoreContext";
+import { trackStoreEvent } from "@/lib/metrics";
 
 export default function HomePage() {
   const {
@@ -37,8 +40,11 @@ export default function HomePage() {
     setSortBy,
     toastMessage,
     toastVariant,
+    showToast,
     celebrationActive,
   } = useStore();
+
+  const [spotlightTab, setSpotlightTab] = useState<"last_units" | "newest">("last_units");
 
   // Filtrado y ordenamiento del catálogo en portada
   const filteredProducts = useMemo(() => {
@@ -70,17 +76,31 @@ export default function HomePage() {
     });
   }, [products, selectedCategory, searchQuery, sortBy]);
 
-  // Los 6 productos destacados principales
+  // Productos destacados administrables desde /admin (máx. 8 en portada)
   const featuredSix = useMemo(
-    () => products.filter((p) => p.active && p.isFeatured).slice(0, 6),
+    () => products.filter((p) => p.active && !p.isDemo && p.isFeatured).slice(0, 8),
     [products]
   );
 
-  // Novedades y paquetes destacados
-  const specialOffers = useMemo(
-    () => products.filter((p) => p.active && p.isSpecialOffer),
+  // Últimas piezas basadas en inventario real (1 a 2 unidades disponibles)
+  const lastUnitsProducts = useMemo(
+    () =>
+      products
+        .filter((p) => p.active && !p.isDemo && p.stock !== null && p.stock > 0 && p.stock <= 2)
+        .slice(0, 4),
     [products]
   );
+
+  // Novedades recientes basadas en inventario real activo
+  const newestProducts = useMemo(
+    () => products.filter((p) => p.active && !p.isDemo).slice(0, 4),
+    [products]
+  );
+
+  const spotlightProducts =
+    spotlightTab === "last_units" && lastUnitsProducts.length > 0
+      ? lastUnitsProducts
+      : newestProducts;
 
   const selectedCategoryName =
     selectedCategory === "all"
@@ -271,7 +291,10 @@ export default function HomePage() {
           <div className="mt-6 flex justify-center">
             <Link
               href="/catalogo"
-              onClick={() => setSelectedCategory("all")}
+              onClick={() => {
+                setSelectedCategory("all");
+                trackStoreEvent("catalog_click");
+              }}
               className="btn-shimmer inline-flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-[#E91E63] via-[#D81B60] to-[#AD1457] text-white text-xs sm:text-sm font-bold shadow-boutique hover:shadow-boutiqueHover transition"
             >
               <ShoppingBag className="w-4 h-4" />
@@ -281,52 +304,91 @@ export default function HomePage() {
           </div>
         </motion.section>
 
-        {/* 5. Sección de Sorpresas y Artículos de Temporada */}
-        <motion.section
-          id="ofertas-especiales"
-          aria-labelledby="titulo-ofertas"
-          initial={{ opacity: 0, y: 22 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-50px" }}
-          transition={{ duration: 0.45, ease: "easeOut" }}
-          className="max-w-[1320px] mx-auto px-4 sm:px-6 py-6"
-        >
-          <div className="rounded-3xl bg-gradient-to-r from-[#FFF0F6] via-white to-[#FFF0F6] border border-pink-200/90 p-5 sm:p-7 shadow-card">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-5">
-              <div className="flex items-center gap-2.5">
-                <span className="w-9 h-9 rounded-2xl bg-gradient-to-br from-[#E91E63] to-[#AD1457] text-white flex items-center justify-center shadow">
-                  <Flame className="w-5 h-5" />
-                </span>
-                <div>
-                  <h2
-                    id="titulo-ofertas"
-                    className="text-xl sm:text-2xl font-extrabold text-[#6A1B4D]"
+        {/* 5. Sección de Novedades y Últimas Piezas (100% inventario real) */}
+        {newestProducts.length > 0 && (
+          <motion.section
+            id="ofertas-especiales"
+            aria-labelledby="titulo-ofertas"
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: "easeOut" }}
+            className="max-w-[1320px] mx-auto px-4 sm:px-6 py-6"
+          >
+            <div className="rounded-3xl bg-gradient-to-r from-[#FFF0F6] via-white to-[#FFF0F6] border border-pink-200/90 p-5 sm:p-7 shadow-card">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#E91E63] to-[#AD1457] text-white flex items-center justify-center shadow shrink-0">
+                    <Flame className="w-5 h-5" />
+                  </span>
+                  <div>
+                    <h2
+                      id="titulo-ofertas"
+                      className="text-xl sm:text-2xl font-extrabold text-[#6A1B4D]"
+                    >
+                      Novedades y Últimas Piezas
+                    </h2>
+                    <p className="text-xs text-gray-600">
+                      Inventario real disponible en tienda — aparta tu favorito por WhatsApp antes
+                      de que se agote
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSpotlightTab("last_units")}
+                    className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold transition ${
+                      spotlightTab === "last_units"
+                        ? "bg-[#D81B60] text-white shadow-sm"
+                        : "bg-pink-50 text-[#6A1B4D] border border-pink-200 hover:bg-pink-100"
+                    }`}
                   >
-                    Sorpresas y Novedades para Toda la Familia
-                  </h2>
-                  <p className="text-xs text-gray-600">
-                    Sets de regalo, juguetes, peluches y artículos seleccionados para tus
-                    celebraciones
-                  </p>
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>Últimas piezas ({lastUnitsProducts.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSpotlightTab("newest")}
+                    className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold transition ${
+                      spotlightTab === "newest"
+                        ? "bg-[#D81B60] text-white shadow-sm"
+                        : "bg-pink-50 text-[#6A1B4D] border border-pink-200 hover:bg-pink-100"
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Recién llegados ({newestProducts.length})</span>
+                  </button>
+
+                  <Link
+                    href="/catalogo"
+                    onClick={() => trackStoreEvent("catalog_click")}
+                    className="text-xs font-bold text-[#D81B60] hover:bg-pink-200/70 bg-pink-100/80 px-3.5 py-2 rounded-full border border-pink-200 transition"
+                  >
+                    Ver todo →
+                  </Link>
                 </div>
               </div>
-              <Link
-                href="/catalogo"
-                className="text-xs font-bold text-[#D81B60] hover:bg-pink-200/70 bg-pink-100/80 px-3.5 py-1.5 rounded-full self-start sm:self-center border border-pink-200 transition"
-              >
-                🎁 Ver catálogo completo →
-              </Link>
-            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {specialOffers.map((product, idx) => (
-                <ProductCard key={`offer-${product.id}`} product={product} index={idx} />
-              ))}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {spotlightProducts.map((product, idx) => (
+                  <ProductCard key={`spotlight-${product.id}`} product={product} index={idx} />
+                ))}
+              </div>
             </div>
-          </div>
-        </motion.section>
+          </motion.section>
+        )}
 
-        {/* 6. Galería Conoce nuestra tienda */}
+        {/* 6. Código QR Descargable y Compartir Tienda */}
+        <section
+          aria-label="Código QR y compartir tienda"
+          className="max-w-[1320px] mx-auto px-4 sm:px-6 py-4"
+        >
+          <CatalogQRCodeCard onShowToast={showToast} />
+        </section>
+
+        {/* 7. Galería Conoce nuestra tienda */}
         <StoreGallerySection />
 
         {/* 7. Sección Visítanos y Contacto Oficial con Google Maps */}

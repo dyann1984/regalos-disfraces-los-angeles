@@ -5,6 +5,17 @@ export const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ||
   "https://regalos-disfraces-los-angeles.vercel.app";
 
+export const CATALOG_PUBLIC_URL = `${SITE_URL}/catalogo`;
+
+export function buildStoreWhatsAppShareUrl(): string {
+  const message = `🎁 ¡Conoce el catálogo en línea de *${BUSINESS_INFO.name}*!\nPeluches, juguetes, disfraces, regalos, artículos para fiestas y accesorios.\n👉 ${CATALOG_PUBLIC_URL}`;
+  return `https://wa.me/?text=${encodeURIComponent(message)}`;
+}
+
+export function buildStoreFacebookShareUrl(): string {
+  return `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(SITE_URL)}`;
+}
+
 export function formatMXN(amount: number | null | undefined): string {
   if (amount === null || amount === undefined) {
     return "Precio por confirmar";

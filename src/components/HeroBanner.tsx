@@ -19,6 +19,8 @@ import { BUSINESS_INFO, INITIAL_BANNERS } from "@/data/mockCatalog";
 import { getDirectWhatsAppUrl } from "@/lib/whatsapp";
 import { useStore } from "@/context/StoreContext";
 import { GoldenSparklesField } from "@/components/BrandDetails";
+import { trackStoreEvent } from "@/lib/metrics";
+import { getOptimizedCloudinaryUrl } from "@/lib/imageUtils";
 
 export default function HeroBanner() {
   const { banners } = useStore();
@@ -162,6 +164,7 @@ export default function HeroBanner() {
                   <div className="mt-5 flex flex-wrap items-center justify-center lg:justify-start gap-3">
                     <Link
                       href={resolvedCtaHref}
+                      onClick={() => trackStoreEvent("catalog_click")}
                       className="btn-shimmer inline-flex items-center gap-2.5 bg-gradient-to-r from-[#E91E63] via-[#D81B60] to-[#AD1457] text-white font-bold text-sm sm:text-base px-6 py-3.5 rounded-full shadow-boutique"
                     >
                       <ShoppingCart className="w-4 h-4" />
@@ -199,8 +202,10 @@ export default function HeroBanner() {
                     <span>Detalles mágicos</span>
                   </span>
                   <img
-                    src={slide.imageUrl || "/images/hero-gifts.jpg"}
+                    src={getOptimizedCloudinaryUrl(slide.imageUrl || "/images/hero-gifts.jpg", 960)}
                     alt="Oso de peluche, arreglo de rosas, globos de feliz cumpleaños y cajas de regalo"
+                    fetchPriority="high"
+                    decoding="async"
                     className="img-zoom-smooth w-full h-auto object-cover"
                   />
                 </div>
@@ -280,6 +285,7 @@ export default function HeroBanner() {
               href={getDirectWhatsAppUrl()}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => trackStoreEvent("whatsapp_click")}
               className="col-span-2 md:col-span-1 flex items-center justify-center gap-2.5 py-1 px-2 hover:text-[#1DA851] transition"
             >
               <span className="w-7 h-7 rounded-full bg-[#25D366] text-white flex items-center justify-center shrink-0 shadow-sm">
