@@ -40,16 +40,40 @@ export const supabase = isSupabaseConfigured
 
 export const STORAGE_BUCKET = "store-media";
 
-export const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
-export const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+export const ALLOWED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+  "image/avif",
+];
+export const ALLOWED_IMAGE_EXTENSION_REGEX = /\.(jpe?g|png|webp|heic|heif|avif)$/i;
+export const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB (límite seguro de Cloudinary)
 
 export function validateImageFile(file: File): string | null {
-  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-    return "Formato no permitido. Usa fotografías JPG, PNG o WEBP.";
+  if (!file || file.size <= 0) {
+    return "La fotografía seleccionada está vacía o no se pudo leer. Intenta tomarla nuevamente.";
   }
+
+  const normalizedType = (file.type || "").toLowerCase().trim();
+  const hasAllowedMime = ALLOWED_IMAGE_TYPES.includes(normalizedType);
+  const hasAllowedExt = ALLOWED_IMAGE_EXTENSION_REGEX.test(file.name || "");
+
+  // Algunos celulares Android/iOS devuelven file.type vacío o application/octet-stream al usar cámara/HEIC
+  const isGenericOrEmptyMime =
+    normalizedType === "" || normalizedType === "application/octet-stream";
+
+  if (!hasAllowedMime && !(isGenericOrEmptyMime && hasAllowedExt)) {
+    return "Formato no permitido. Usa fotografías JPG, PNG, WEBP o HEIC/HEIF de tu celular.";
+  }
+
   if (file.size > MAX_IMAGE_SIZE_BYTES) {
-    return "La imagen supera el límite de 5 MB. Por favor elige una imagen más ligera.";
+    const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+    return `La imagen pesa ${sizeMB} MB y supera el límite seguro de 10 MB. Toma una fotografía más ligera o recórtala.`;
   }
+
   return null;
 }
 
