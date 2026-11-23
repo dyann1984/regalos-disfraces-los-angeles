@@ -204,11 +204,181 @@ export async function signOutFirebaseAdmin(): Promise<void> {
   }
 }
 
+async function fetchWithClientTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function waitMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isAbortError(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    (err.name === "AbortError" || err.message.toLowerCase().includes("aborted"))
+  );
+}
+
+function isTransientNetworkError(err: unknown): boolean {
+  if (isAbortError(err)) return true;
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return (
+    err.name === "TypeError" ||
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror") ||
+    msg.includes("load failed") ||
+    msg.includes("network request failed")
+  );
+}
+
+function isRetryableHttpStatus(status: number): boolean {
+  return status === 408 || status === 429 || (status >= 500 && status <= 599);
+}
+
+function mapUploadHttpError(status: number, serverMessage?: string): string {
+  if (status === 401) {
+    return "Tu sesión administrativa expiró. Vuelve a iniciar sesión en /admin e intenta nuevamente.";
+  }
+  if (status === 403) {
+    return (
+      serverMessage ||
+      "Acceso denegado: tu cuenta no tiene permisos de administradora para subir fotografías."
+    );
+  }
+  if (status === 413) {
+    return "La fotografía es demasiado pesada para el servidor (límite 10 MB). Toma una foto más ligera e intenta de nuevo.";
+  }
+  if (status === 429) {
+    return "Demasiados intentos de subida seguidos. Espera unos segundos e intenta nuevamente.";
+  }
+  if (status >= 500) {
+    return (
+      serverMessage ||
+      "El servicio de imágenes presentó un error temporal. Intenta nuevamente en unos segundos."
+    );
+  }
+  return serverMessage || `No se pudo subir la fotografía (error HTTP ${status}).`;
+}
+
+interface CloudinarySignPayload {
+  cloudName: string;
+  apiKey: string;
+  timestamp: number;
+  folder: string;
+  signature: string;
+}
+
+async function requestCloudinarySignature(
+  folder: "products" | "gallery" | "categories" | "banners"
+): Promise<CloudinarySignPayload> {
+  const user = firebaseAuth?.currentUser;
+  if (!user) {
+    throw new Error("Debes iniciar sesión como administradora para subir fotografías.");
+  }
+
+  let forceRefresh = false;
+  const maxAttempts = 3;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let idToken: string;
+    try {
+      idToken = await user.getIdToken(forceRefresh);
+    } catch {
+      throw new Error(
+        "No se pudo renovar tu sesión administrativa. Verifica tu conexión o inicia sesión nuevamente."
+      );
+    }
+
+    if (!idToken) {
+      throw new Error("Debes iniciar sesión como administradora para subir fotografías.");
+    }
+
+    try {
+      const signRes = await fetchWithClientTimeout(
+        "/api/admin/cloudinary/sign",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({ folder }),
+        },
+        15_000
+      );
+
+      const signData = await signRes.json().catch(() => ({}));
+
+      // Si el token expiró (401), forzar renovación una vez y reintentar de inmediato
+      if (signRes.status === 401 && !forceRefresh) {
+        forceRefresh = true;
+        continue;
+      }
+
+      if (!signRes.ok) {
+        if (isRetryableHttpStatus(signRes.status) && attempt < maxAttempts) {
+          await waitMs(700 * attempt);
+          continue;
+        }
+        throw new Error(mapUploadHttpError(signRes.status, signData?.error));
+      }
+
+      if (
+        !signData?.cloudName ||
+        !signData?.apiKey ||
+        !signData?.signature ||
+        !signData?.folder
+      ) {
+        throw new Error("El servidor devolvió una firma de subida incompleta.");
+      }
+
+      return {
+        cloudName: String(signData.cloudName),
+        apiKey: String(signData.apiKey),
+        timestamp: Number(signData.timestamp),
+        folder: String(signData.folder),
+        signature: String(signData.signature),
+      };
+    } catch (err) {
+      if (isTransientNetworkError(err) && attempt < maxAttempts) {
+        await waitMs(800 * attempt);
+        continue;
+      }
+      if (isAbortError(err)) {
+        throw new Error(
+          "La autorización de subida tardó demasiado por conexión lenta. Verifica tu internet e intenta nuevamente."
+        );
+      }
+      if (isTransientNetworkError(err)) {
+        throw new Error(
+          "Sin conexión o se perdió la señal al autorizar la subida. Verifica tu red e intenta nuevamente."
+        );
+      }
+      throw err;
+    }
+  }
+
+  throw new Error("No se pudo autorizar la subida segura a Cloudinary.");
+}
+
 /**
  * Sube una fotografía tomada desde el celular o galería usando firma segura en servidor:
  * 1. Prioriza Cloudinary mediante firma SHA-1 en `/api/admin/cloudinary/sign`
  *    (exige Firebase ID Token + autorización en `admin_users`, sin presets públicos).
- * 2. Como respaldo explícito (`NEXT_PUBLIC_STORAGE_MODE=firebase_storage`), usa Firebase Storage.
+ * 2. Incluye renovación automática de token expirado (401), tiempos de espera seguros
+ *    y reintentos automáticos ante fallos transitorios de red móvil (429 / 5xx / timeout).
+ * 3. Como respaldo explícito (`NEXT_PUBLIC_STORAGE_MODE=firebase_storage`), usa Firebase Storage.
  * No almacena imágenes base64 (`firestore_inline`) en documentos nuevos de producción.
  */
 export async function uploadImageToFirebase(
@@ -223,59 +393,82 @@ export async function uploadImageToFirebase(
   const storageMode = (process.env.NEXT_PUBLIC_STORAGE_MODE || "cloudinary").toLowerCase();
 
   if (storageMode !== "firebase_storage") {
-    const idToken = await firebaseAuth?.currentUser?.getIdToken();
-    if (!idToken) {
-      throw new Error("Debes iniciar sesión como administradora para subir fotografías.");
-    }
+    const signData = await requestCloudinarySignature(folder);
+    const maxUploadAttempts = 3;
 
-    const signRes = await fetch("/api/admin/cloudinary/sign", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${idToken}`,
-      },
-      body: JSON.stringify({ folder }),
-    });
+    for (let attempt = 1; attempt <= maxUploadAttempts; attempt++) {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("api_key", signData.apiKey);
+      formData.append("timestamp", String(signData.timestamp));
+      formData.append("folder", signData.folder);
+      formData.append("signature", signData.signature);
 
-    const signData = await signRes.json().catch(() => ({}));
-    if (!signRes.ok) {
-      throw new Error(
-        signData?.error || "No se pudo autorizar la subida segura a Cloudinary."
-      );
-    }
+      try {
+        const uploadRes = await fetchWithClientTimeout(
+          `https://api.cloudinary.com/v1_1/${encodeURIComponent(
+            signData.cloudName
+          )}/image/upload`,
+          {
+            method: "POST",
+            body: formData,
+          },
+          45_000
+        );
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("api_key", String(signData.apiKey));
-    formData.append("timestamp", String(signData.timestamp));
-    formData.append("folder", String(signData.folder));
-    formData.append("signature", String(signData.signature));
+        if (!uploadRes.ok) {
+          const errJson = await uploadRes.json().catch(() => ({}));
+          const cloudMsg =
+            typeof errJson?.error?.message === "string"
+              ? errJson.error.message
+              : undefined;
 
-    const uploadRes = await fetch(
-      `https://api.cloudinary.com/v1_1/${encodeURIComponent(
-        String(signData.cloudName)
-      )}/image/upload`,
-      {
-        method: "POST",
-        body: formData,
+          if (isRetryableHttpStatus(uploadRes.status) && attempt < maxUploadAttempts) {
+            await waitMs(900 * attempt);
+            continue;
+          }
+
+          if (
+            uploadRes.status === 400 &&
+            cloudMsg &&
+            cloudMsg.toLowerCase().includes("file size too large")
+          ) {
+            throw new Error(
+              "La fotografía supera el tamaño máximo permitido por Cloudinary (10 MB). Toma una foto más ligera."
+            );
+          }
+
+          throw new Error(mapUploadHttpError(uploadRes.status, cloudMsg));
+        }
+
+        const uploaded = await uploadRes.json().catch(() => ({}));
+        const secureUrl = String(uploaded.secure_url || "");
+        if (!secureUrl || !secureUrl.startsWith("https://")) {
+          throw new Error("Cloudinary no devolvió una URL válida para la fotografía.");
+        }
+
+        // Optimización automática de entrega (formato y calidad adaptativos + orientación EXIF)
+        return secureUrl.replace("/image/upload/", "/image/upload/f_auto,q_auto/");
+      } catch (err) {
+        if (isTransientNetworkError(err) && attempt < maxUploadAttempts) {
+          await waitMs(1000 * attempt);
+          continue;
+        }
+        if (isAbortError(err)) {
+          throw new Error(
+            "La subida de la fotografía tardó demasiado por conexión lenta. Verifica tu señal e intenta nuevamente."
+          );
+        }
+        if (isTransientNetworkError(err)) {
+          throw new Error(
+            "Se perdió la conexión al subir la fotografía a Cloudinary. Verifica tu internet e intenta nuevamente."
+          );
+        }
+        throw err;
       }
-    );
-
-    if (!uploadRes.ok) {
-      const errJson = await uploadRes.json().catch(() => ({}));
-      throw new Error(
-        errJson?.error?.message || "No se pudo subir la imagen a Cloudinary."
-      );
     }
 
-    const uploaded = await uploadRes.json();
-    const secureUrl = String(uploaded.secure_url || "");
-    if (!secureUrl) {
-      throw new Error("Cloudinary no devolvió una URL válida.");
-    }
-
-    // Optimización automática de entrega (formato y calidad adaptativos)
-    return secureUrl.replace("/image/upload/", "/image/upload/f_auto,q_auto/");
+    throw new Error("No se pudo subir la fotografía a Cloudinary después de varios intentos.");
   }
 
   // Respaldo explícito: Firebase Cloud Storage (`store-media/{folder}/...`)
@@ -311,17 +504,33 @@ export async function deleteImageFromCloudinary(imageUrl: string): Promise<void>
   if (!imageUrl || !imageUrl.includes("res.cloudinary.com")) {
     return;
   }
-  const idToken = await firebaseAuth?.currentUser?.getIdToken();
+  const user = firebaseAuth?.currentUser;
+  if (!user) return;
+
+  let idToken = await user.getIdToken().catch(() => "");
   if (!idToken) return;
 
-  await fetch("/api/admin/cloudinary/delete", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${idToken}`,
-    },
-    body: JSON.stringify({ imageUrl }),
-  });
+  const doDelete = (token: string) =>
+    fetchWithClientTimeout(
+      "/api/admin/cloudinary/delete",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ imageUrl }),
+      },
+      15_000
+    );
+
+  const res = await doDelete(idToken);
+  if (res.status === 401) {
+    idToken = await user.getIdToken(true).catch(() => "");
+    if (idToken) {
+      await doDelete(idToken);
+    }
+  }
 }
 
 /**

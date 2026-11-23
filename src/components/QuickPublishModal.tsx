@@ -78,9 +78,9 @@ export default function QuickPublishModal({
   const defaultCategorySlug: CategorySlug =
     activeCategories[0]?.slug || "regalos";
 
-  // Estado del formulario rápido (soporta 1 a 5 fotografías optimizadas WebP)
+  // Estado del formulario rápido (soporta 1 a 5 fotografías optimizadas WebP/JPEG/HEIC)
   const [photos, setPhotos] = useState<OptimizedImageResult[]>([]);
-  const [photoCaptureMode, setPhotoCaptureMode] = useState<"replace" | "append">("replace");
+  const [brokenPreviews, setBrokenPreviews] = useState<Record<string, boolean>>({});
   const photo = photos[0] || null;
   const [processingPhoto, setProcessingPhoto] = useState(false);
   const [name, setName] = useState("");
@@ -109,6 +109,7 @@ export default function QuickPublishModal({
   } | null>(null);
 
   const submittingRef = useRef(false);
+  const photoCaptureModeRef = useRef<"replace" | "append">("replace");
   const sessionProductIdRef = useRef<string>(createUniqueProductId());
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
@@ -129,7 +130,8 @@ export default function QuickPublishModal({
     previewUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
     previewUrlsRef.current = [];
     setPhotos([]);
-    setPhotoCaptureMode("replace");
+    setBrokenPreviews({});
+    photoCaptureModeRef.current = "replace";
     setName("");
     setPriceInput("");
     setCategorySlug(defaultCategorySlug);
@@ -156,16 +158,30 @@ export default function QuickPublishModal({
 
   const isBusy = Boolean(submittingMode) || processingPhoto;
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const fileList = e.target.files;
-    // Resetear input inmediatamente para permitir tomar otra foto en iOS Safari / Android Chrome
-    e.target.value = "";
-    if (!fileList || fileList.length === 0) return;
+  const openFilePicker = (
+    source: "camera" | "gallery",
+    mode: "replace" | "append"
+  ) => {
+    photoCaptureModeRef.current = mode;
+    const targetInput =
+      source === "camera" ? cameraInputRef.current : galleryInputRef.current;
+    if (targetInput) {
+      targetInput.value = "";
+      targetInput.click();
+    }
+  };
 
-    const incoming = Array.from(fileList);
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    // IMPORTANTE: Copiar el FileList vivo a un arreglo ANTES de limpiar e.target.value,
+    // ya que e.target.value = "" vacía el FileList en Chrome Android, Chrome escritorio y Safari iOS.
+    const incoming = e.target.files ? Array.from(e.target.files) : [];
+    e.target.value = "";
+    if (incoming.length === 0) return;
+
+    const captureMode = photoCaptureModeRef.current;
     setFormError(null);
     setGeminiError(null);
-    if (photoCaptureMode === "replace") {
+    if (captureMode === "replace") {
       setGeminiNote(null);
       setGeminiSuggestedName(null);
     }
@@ -173,7 +189,7 @@ export default function QuickPublishModal({
 
     try {
       const remainingSlots =
-        photoCaptureMode === "append"
+        captureMode === "append"
           ? Math.max(0, MAX_PRODUCT_IMAGES - photos.length)
           : MAX_PRODUCT_IMAGES;
       if (remainingSlots <= 0) {
@@ -187,7 +203,7 @@ export default function QuickPublishModal({
         optimizedBatch.push(opt);
       }
 
-      if (photoCaptureMode === "append") {
+      if (captureMode === "append") {
         setPhotos((prev) => [...prev, ...optimizedBatch].slice(0, MAX_PRODUCT_IMAGES));
       } else {
         setPhotos((prev) => {
@@ -195,6 +211,13 @@ export default function QuickPublishModal({
           const rest = prev.slice(1);
           return [...optimizedBatch, ...rest].slice(0, MAX_PRODUCT_IMAGES);
         });
+      }
+
+      if (optimizedBatch.some((item) => item.usedOriginalFallback)) {
+        onShowToast(
+          "Fotografía lista en formato original. Cloudinary la optimizará automáticamente al subir.",
+          "info"
+        );
       }
     } catch (err) {
       const message =
@@ -565,8 +588,14 @@ export default function QuickPublishModal({
                   </span>
                   {photo && (
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      {photo.mimeType === "image/webp" ? "WebP" : "JPEG"} •{" "}
-                      {photo.sizeKB} KB
+                      {photo.mimeType === "image/webp"
+                        ? "WebP"
+                        : photo.isHeic
+                          ? "HEIC"
+                          : photo.mimeType === "image/png"
+                            ? "PNG"
+                            : "JPEG"}{" "}
+                      • {photo.sizeKB} KB
                     </span>
                   )}
                 </div>
@@ -583,7 +612,7 @@ export default function QuickPublishModal({
                     <button
                       type="button"
                       disabled={isBusy}
-                      onClick={() => cameraInputRef.current?.click()}
+                      onClick={() => openFilePicker("camera", "replace")}
                       className="btn-shimmer w-full py-5 px-4 rounded-2xl bg-gradient-to-r from-[#E91E63] via-[#D81B60] to-[#AD1457] text-white shadow-boutique flex flex-col items-center justify-center gap-2 active:scale-[0.99] transition"
                     >
                       <Camera className="w-8 h-8" />
@@ -598,7 +627,7 @@ export default function QuickPublishModal({
                     <button
                       type="button"
                       disabled={isBusy}
-                      onClick={() => galleryInputRef.current?.click()}
+                      onClick={() => openFilePicker("gallery", "replace")}
                       className="w-full py-3 px-4 rounded-2xl bg-pink-50 border border-pink-200 text-[#6A1B4D] text-sm font-bold flex items-center justify-center gap-2 hover:bg-pink-100 active:scale-[0.99] transition"
                     >
                       <ImagePlus className="w-4 h-4 text-[#D81B60]" />
@@ -607,22 +636,39 @@ export default function QuickPublishModal({
                   </div>
                 ) : (
                   <div className="space-y-2.5">
-                    <div className="relative rounded-2xl overflow-hidden border-2 border-pink-200 bg-[#FDF2F7] flex items-center justify-center">
-                      <img
-                        src={photo.previewUrl}
-                        alt="Vista previa del producto"
-                        className="w-full max-h-64 object-contain"
-                      />
+                    <div className="relative rounded-2xl overflow-hidden border-2 border-pink-200 bg-[#FDF2F7] flex items-center justify-center min-h-[140px]">
+                      {brokenPreviews[photo.previewUrl] ? (
+                        <div className="p-5 text-center space-y-1.5">
+                          <CheckCircle2 className="w-7 h-7 text-emerald-600 mx-auto" />
+                          <p className="text-xs font-extrabold text-[#6A1B4D]">
+                            Fotografía lista para subir ({photo.file.name})
+                          </p>
+                          <p className="text-[11px] text-gray-500">
+                            {photo.isHeic
+                              ? "Formato HEIC de iPhone: Cloudinary la convertirá automáticamente al publicar."
+                              : "Vista previa no disponible en este navegador, pero el archivo está listo para subirse."}
+                          </p>
+                        </div>
+                      ) : (
+                        <img
+                          src={photo.previewUrl}
+                          alt="Vista previa del producto"
+                          onError={() =>
+                            setBrokenPreviews((prev) => ({
+                              ...prev,
+                              [photo.previewUrl]: true,
+                            }))
+                          }
+                          className="w-full max-h-64 object-contain"
+                        />
+                      )}
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         type="button"
                         disabled={isBusy}
-                        onClick={() => {
-                          setPhotoCaptureMode("replace");
-                          cameraInputRef.current?.click();
-                        }}
+                        onClick={() => openFilePicker("camera", "replace")}
                         className="py-2.5 px-3 rounded-xl bg-pink-50 border border-pink-200 text-[#6A1B4D] text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-pink-100 disabled:opacity-50"
                       >
                         <RefreshCw className="w-3.5 h-3.5 text-[#D81B60]" />
@@ -632,10 +678,7 @@ export default function QuickPublishModal({
                       <button
                         type="button"
                         disabled={isBusy}
-                        onClick={() => {
-                          setPhotoCaptureMode("replace");
-                          galleryInputRef.current?.click();
-                        }}
+                        onClick={() => openFilePicker("gallery", "replace")}
                         className="py-2.5 px-3 rounded-xl bg-white border border-pink-200 text-[#6A1B4D] text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-pink-50 disabled:opacity-50"
                       >
                         <ImagePlus className="w-3.5 h-3.5 text-[#D81B60]" />
@@ -652,12 +695,27 @@ export default function QuickPublishModal({
                             idx === 0 ? "border-[#D81B60]" : "border-pink-200"
                           }`}
                         >
-                          <img
-                            src={pItem.previewUrl}
-                            alt={`Foto ${idx + 1}`}
-                            onClick={() => handleMakePrimaryPhoto(idx)}
-                            className="w-full h-full object-contain cursor-pointer"
-                          />
+                          {brokenPreviews[pItem.previewUrl] ? (
+                            <div
+                              onClick={() => handleMakePrimaryPhoto(idx)}
+                              className="w-full h-full flex items-center justify-center bg-pink-50 text-[9px] font-extrabold text-[#6A1B4D] cursor-pointer"
+                            >
+                              {pItem.isHeic ? "HEIC" : "IMG"}
+                            </div>
+                          ) : (
+                            <img
+                              src={pItem.previewUrl}
+                              alt={`Foto ${idx + 1}`}
+                              onClick={() => handleMakePrimaryPhoto(idx)}
+                              onError={() =>
+                                setBrokenPreviews((prev) => ({
+                                  ...prev,
+                                  [pItem.previewUrl]: true,
+                                }))
+                              }
+                              className="w-full h-full object-contain cursor-pointer"
+                            />
+                          )}
                           {idx === 0 && (
                             <span className="absolute bottom-0 inset-x-0 bg-[#6A1B4D]/85 text-white text-[8px] font-bold text-center">
                               Principal
@@ -680,10 +738,7 @@ export default function QuickPublishModal({
                           <button
                             type="button"
                             disabled={isBusy}
-                            onClick={() => {
-                              setPhotoCaptureMode("append");
-                              cameraInputRef.current?.click();
-                            }}
+                            onClick={() => openFilePicker("camera", "append")}
                             className="h-14 px-2.5 rounded-xl border-2 border-dashed border-[#D81B60] bg-pink-50/60 text-[#6A1B4D] text-[10px] font-bold flex flex-col items-center justify-center gap-0.5"
                           >
                             <Camera className="w-3.5 h-3.5 text-[#D81B60]" />
@@ -692,10 +747,7 @@ export default function QuickPublishModal({
                           <button
                             type="button"
                             disabled={isBusy}
-                            onClick={() => {
-                              setPhotoCaptureMode("append");
-                              galleryInputRef.current?.click();
-                            }}
+                            onClick={() => openFilePicker("gallery", "append")}
                             className="h-14 px-2.5 rounded-xl border-2 border-dashed border-pink-300 bg-white text-[#6A1B4D] text-[10px] font-bold flex flex-col items-center justify-center gap-0.5"
                           >
                             <ImagePlus className="w-3.5 h-3.5 text-[#D81B60]" />

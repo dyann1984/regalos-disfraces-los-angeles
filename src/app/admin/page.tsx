@@ -1821,7 +1821,7 @@ export default function AdminPage() {
                       <span>Tomar o subir foto...</span>
                       <input
                         type="file"
-                        accept="image/jpeg,image/png,image/webp"
+                        accept="image/*"
                         className="hidden"
                         onChange={(e) =>
                           handleSingleImageUploadToStorage(e, "categories", (url) =>
@@ -2160,7 +2160,7 @@ export default function AdminPage() {
                         <span>Subir foto real...</span>
                         <input
                           type="file"
-                          accept="image/jpeg,image/png,image/webp"
+                          accept="image/*"
                           className="hidden"
                           onChange={(e) =>
                             handleSingleImageUploadToStorage(e, "gallery", (url) =>
@@ -2447,7 +2447,7 @@ export default function AdminPage() {
                   <span>Tomar foto con cámara</span>
                   <input
                     type="file"
-                    accept="image/jpeg,image/png,image/webp"
+                    accept="image/*"
                     capture="environment"
                     className="hidden"
                     onChange={handleAiPhotoSelection}
@@ -2459,7 +2459,7 @@ export default function AdminPage() {
                   <span>Elegir de galería</span>
                   <input
                     type="file"
-                    accept="image/jpeg,image/png,image/webp"
+                    accept="image/*"
                     multiple
                     className="hidden"
                     onChange={handleAiPhotoSelection}

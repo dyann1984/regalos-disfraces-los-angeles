@@ -61,15 +61,23 @@ export async function POST(req: NextRequest) {
     formData.append("timestamp", String(timestamp));
     formData.append("signature", signature);
 
-    const destroyRes = await fetch(
-      `https://api.cloudinary.com/v1_1/${encodeURIComponent(
-        cloudinary.cloudName
-      )}/image/destroy`,
-      {
-        method: "POST",
-        body: formData,
-      }
-    );
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    let destroyRes: Response;
+    try {
+      destroyRes = await fetch(
+        `https://api.cloudinary.com/v1_1/${encodeURIComponent(
+          cloudinary.cloudName
+        )}/image/destroy`,
+        {
+          method: "POST",
+          body: formData,
+          signal: controller.signal,
+        }
+      );
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (!destroyRes.ok) {
       const errText = await destroyRes.text();

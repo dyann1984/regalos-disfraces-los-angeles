@@ -44,13 +44,16 @@ export async function POST(req: NextRequest) {
       cloudinary.apiSecret
     );
 
-    return NextResponse.json({
-      cloudName: cloudinary.cloudName,
-      apiKey: cloudinary.apiKey,
-      timestamp,
-      folder,
-      signature,
-    });
+    return NextResponse.json(
+      {
+        cloudName: cloudinary.cloudName,
+        apiKey: cloudinary.apiKey,
+        timestamp,
+        folder,
+        signature,
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   } catch (err) {
     return NextResponse.json(
       {
@@ -60,7 +63,7 @@ export async function POST(req: NextRequest) {
             : "No se pudo firmar la subida segura a Cloudinary.",
         code: "CLOUDINARY_SIGN_ERROR",
       },
-      { status: 500 }
+      { status: 500, headers: { "Cache-Control": "no-store" } }
     );
   }
 }
